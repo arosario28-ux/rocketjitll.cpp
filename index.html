@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Sunset Circuit — three.js racing</title>
+  <meta name="description" content="A 3D arcade racing game built with three.js. Three laps, three rivals, one global leaderboard.">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-top-left">
+      <div class="stat"><span class="label">POS</span><span id="hud-pos">4</span><small>/4</small></div>
+      <div class="stat"><span class="label">LAP</span><span id="hud-lap">1</span><small>/3</small></div>
+    </div>
+    <div class="hud-top-right">
+      <div class="time-row"><span class="label">TIME</span><span id="hud-time">0:00.000</span></div>
+      <div class="time-row"><span class="label">LAST</span><span id="hud-last">–:––.–––</span></div>
+      <div class="time-row"><span class="label">BEST</span><span id="hud-best">–:––.–––</span></div>
+    </div>
+    <canvas id="minimap" width="200" height="200"></canvas>
+    <div class="speedo"><span id="hud-speed">0</span><small>km/h</small></div>
+    <div id="banner" hidden></div>
+  </div>
+
+  <div id="touch" hidden>
+    <div class="touch-group">
+      <button data-key="left" aria-label="Steer left">◀</button>
+      <button data-key="right" aria-label="Steer right">▶</button>
+    </div>
+    <div class="touch-group">
+      <button data-key="down" aria-label="Brake">BRAKE</button>
+      <button data-key="up" aria-label="Accelerate">GAS</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>SUNSET <em>CIRCUIT</em></h1>
+      <p id="overlay-sub" class="sub">Loading…</p>
+
+      <div id="results" hidden></div>
+
+      <div id="menu" hidden>
+        <label class="name-field">
+          Driver name
+          <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Your name">
+        </label>
+        <button id="start">START RACE</button>
+        <ul class="controls">
+          <li><kbd>W</kbd>/<kbd>↑</kbd> gas</li>
+          <li><kbd>S</kbd>/<kbd>↓</kbd> brake · reverse</li>
+          <li><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> steer</li>
+          <li><kbd>Space</kbd> handbrake</li>
+          <li><kbd>C</kbd> camera</li>
+          <li><kbd>R</kbd> restart</li>
+          <li><kbd>M</kbd> mute</li>
+        </ul>
+      </div>
+
+      <div class="board">
+        <h2>Fastest laps</h2>
+        <ol id="board-list"><li class="empty">Loading…</li></ol>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
