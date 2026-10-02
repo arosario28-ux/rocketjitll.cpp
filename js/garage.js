@@ -51,6 +51,12 @@ export const CARS = [
     mats: { paint: ['secondary'], rims: ['wheel_rf.1'], glass: ['glass.001'] },
   },
   {
+    // Granted to one account by name in the database (players.special_cars); nobody else sees it.
+    id: 'connor', name: "Connor's Car", file: 'assets/cars/huayra.glb', special: true, price: 0, paint: 7,
+    level: 1.2, top: 102, accel: 24, grip: 35, brake: 50,
+    mats: { paint: ['PAG_HUAYRA_PAINT'], rims: ['pag_wheels_b'], caliper: ['amdb11_caliper.002'], interior: ['PAG_HUAYRA_LEATHER'], glass: ['pag_glass'], tail: ['pag_taillight_L'] },
+  },
+  {
     // Not for sale: only developer accounts see it. White paint leaves its livery untouched.
     id: 'f1', name: 'McLaren MCL35M F1', file: 'assets/cars/f1.glb', devOnly: true, price: 0, paint: 8, finish: 0,
     level: 1.3, top: 104, accel: 26, grip: 37, brake: 52,
@@ -135,6 +141,7 @@ function make(tag, className, text) {
 export function createGarage({ onPreview, onSave }) {
   let key = GUEST_KEY;
   let isDev = false;
+  let specials = [];   // ids of cars granted to this account alone
   let save = cleanSave(readLocal(key));
   const $ = (id) => document.getElementById(id);
   const ui = {
@@ -143,8 +150,12 @@ export function createGarage({ onPreview, onSave }) {
   };
   let view = 0;   // index into cars()
 
-  const cars = () => CARS.filter((c) => !c.devOnly || isDev);
-  const owns = (car) => isDev || (!car.devOnly && save.owned.includes(car.id));
+  const cars = () => CARS.filter((c) => (c.special ? specials.includes(c.id) : !c.devOnly || isDev));
+  const owns = (car) => {
+    if (car.special) return specials.includes(car.id);
+    if (car.devOnly) return isDev;
+    return isDev || save.owned.includes(car.id);
+  };
   const selectedCar = () => {
     const car = CARS.find((c) => c.id === save.selected);
     return car && owns(car) ? car : CARS[0];
@@ -229,7 +240,7 @@ export function createGarage({ onPreview, onSave }) {
     const car = list[view];
     ui.credits.textContent = cr(save.credits);
     ui.name.textContent = car.name;
-    const cost = car.devOnly ? 'Developers only' : car === CARS[0] ? 'Starter' : cr(car.price);
+    const cost = car.special ? 'Yours alone' : car.devOnly ? 'Developers only' : car === CARS[0] ? 'Starter' : cr(car.price);
     ui.tag.textContent = `Car ${view + 1} of ${list.length} · ${cost} · Rivals level ${Math.round(car.level * 8) + 1}`;
     renderStats(car);
 
@@ -272,10 +283,11 @@ export function createGarage({ onPreview, onSave }) {
     close() { ui.root.hidden = true; },
     format: cr,
 
-    // Switches whose progress the garage is showing. `account` is { username, isDev, save } or
+    // Switches whose progress the garage is showing. `account` is { username, isDev, specialCars, save } or
     // null for a guest. An account that has never saved starts from the guest's progress.
     setAccount(account) {
       isDev = !!account?.isDev;
+      specials = account?.specialCars || [];
       if (!account) {
         key = GUEST_KEY;
         save = cleanSave(readLocal(key));

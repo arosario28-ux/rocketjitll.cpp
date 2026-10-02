@@ -31,6 +31,17 @@
     <canvas id="minimap" width="200" height="200"></canvas>
     <div class="speedo"><span id="hud-speed">0</span><small>km/h</small></div>
     <div id="banner" hidden></div>
+    <button id="pause-btn" aria-label="Pause">❚❚</button>
+  </div>
+
+  <div id="pause" hidden>
+    <div class="pause-card">
+      <h2>PAUSED</h2>
+      <button id="pause-resume">RESUME</button>
+      <button id="pause-restart">RESTART RACE</button>
+      <button id="pause-exit">EXIT TO MENU</button>
+      <p><kbd>Esc</kbd> or <kbd>P</kbd> to resume</p>
+    </div>
   </div>
 
   <div id="touch" hidden>
@@ -99,6 +110,7 @@
           <li><kbd>Space</kbd> handbrake</li>
           <li><kbd>C</kbd> camera</li>
           <li><kbd>R</kbd> restart</li>
+          <li><kbd>Esc</kbd>/<kbd>P</kbd> pause</li>
           <li><kbd>M</kbd> mute</li>
           <li>Win races to earn credits for faster cars.</li>
         </ul>

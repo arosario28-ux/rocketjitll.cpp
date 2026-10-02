@@ -14,6 +14,7 @@ A 3D arcade racing game built with [three.js](https://threejs.org/). Six tracks,
 | `Space` | Handbrake (drift) |
 | `C` | Switch camera |
 | `R` | Restart |
+| `Esc` / `P` | Pause (resume, restart or exit to the menu) |
 | `M` | Mute |
 
 Touch devices get on-screen buttons.
@@ -48,6 +49,7 @@ Race results pay credits (more for a win, more for longer races, and more in fas
 | Lamborghini Huracán EVO | 8,500 |
 | McLaren Spider | 11,500 |
 | Bugatti Veyron | 15,000 |
+| Connor's Car (Pagani Huayra) | one named account only |
 | McLaren MCL35M F1 | developer accounts only |
 
 ## Accounts
@@ -62,6 +64,8 @@ values (extensions.crypt('YOUR-NEW-CODE', extensions.gen_salt('bf', 10)));
 ```
 
 How it works: the `players`, `player_sessions` and `dev_codes` tables are closed to the public API. The game calls database functions (`register_player`, `login_player`, `get_profile`, `save_progress`, `redeem_dev_code`, `logout_player`) that check the passcode against a bcrypt hash and return a session token. Five wrong passcodes lock an account for a minute.
+
+A car can also be granted to a single account: list its id in that player's `special_cars` column (for example `update public.players set special_cars = array['connor'] where username = 'Connor';`). Only that account sees it in the garage; developer access does not include it.
 
 Limits worth knowing: there is no passcode reset, so a forgotten passcode means a new account. And because the game runs entirely in the browser, credits and purchases are reported by the client; someone determined could edit their own save. The developer flag itself can only be set by the database.
 
@@ -89,6 +93,7 @@ The car models are from Sketchfab, used under their Creative Commons licences. E
 
 - [Mitsubishi Lancer evo X (2016)](https://sketchfab.com/WarEntertainment) and [BMW M4 [Realistic Free]](https://sketchfab.com/WarEntertainment) by WARENTERTAINMENT, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [2019 Chevrolet Corvette C8 Stingray](https://sketchfab.com/Hari31) by Hari, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+- [Pagani Huayra [Free]](https://sketchfab.com/BlackSnow02) by Black Snow, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [F1 2021 McLaren MCL35M](https://sketchfab.com/excalibur) by Excalibur, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [Bugatti Veyron fully rigged](https://sketchfab.com/matikassa2) by Eyasu Biyaylgn, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [Nissan Skyline GTR r35](https://sketchfab.com/3d-models/nissan-skyline-gtr-r35-7b142ea3376e4811a326256c59bbc7a2) by [Black Snow](https://sketchfab.com/BlackSnow02), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)

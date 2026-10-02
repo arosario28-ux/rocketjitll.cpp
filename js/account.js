@@ -22,13 +22,13 @@ async function rpc(name, body) {
   }
 }
 
-let session = null;      // { token, username, isDev, save } while signed in
+let session = null;      // { token, username, isDev, specialCars, save } while signed in
 let saveTimer = null;
 let pendingSave = null;
 
 function adopt(reply) {
   if (reply.error) return reply;
-  session = { token: reply.token, username: reply.username, isDev: reply.is_dev, save: reply.save };
+  session = { token: reply.token, username: reply.username, isDev: reply.is_dev, specialCars: reply.cars || [], save: reply.save };
   try { localStorage.setItem(TOKEN_KEY, reply.token); } catch { /* storage blocked: session lasts for this visit */ }
   return session;
 }

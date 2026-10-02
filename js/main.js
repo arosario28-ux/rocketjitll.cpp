@@ -495,6 +495,14 @@ addEventListener('keydown', (e) => {
     else signIn('login');
     return;
   }
+  if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat && (state === 'race' || state === 'countdown' || state === 'paused')) {
+    togglePause();
+    return;
+  }
+  if (state === 'paused') {
+    if (e.code === 'KeyR' && !e.repeat) startRace();
+    return;
+  }
   if (state === 'garage') {
     if (e.code === 'ArrowLeft') garage.step(-1);
     else if (e.code === 'ArrowRight') garage.step(1);
@@ -558,7 +566,8 @@ const audio = {
 
 // ---------------------------------------------------------------- game state
 
-let state = 'loading';          // loading | menu | garage | countdown | race | finished
+let state = 'loading';          // loading | menu | garage | countdown | race | paused | finished
+let resumeState = 'race';       // what a paused game goes back to
 let camMode = 0;                // 0 chase, 1 bonnet
 let player, rivals = [], cars = [];
 let garage;
@@ -577,6 +586,37 @@ const menuText = () => `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 riva
 const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
+function togglePause() {
+  if (state === 'paused') {
+    state = resumeState;
+    $('pause').hidden = true;
+    clock.getDelta();   // don't count the time spent paused
+    return;
+  }
+  if (state !== 'race' && state !== 'countdown') return;
+  resumeState = state;
+  state = 'paused';
+  for (const k in input) input[k] = false;
+  audio.update(0, 0, false);
+  $('pause').hidden = false;
+}
+
+// Abandons the race and goes back to the start screen. No prize, no leaderboard entry.
+function exitToMenu() {
+  state = 'menu';
+  $('pause').hidden = true;
+  hud.root.hidden = true;
+  hud.banner.hidden = true;
+  touchUI.hidden = true;
+  results.hidden = true;
+  for (const k in input) input[k] = false;
+  audio.update(0, 0, false);
+  resetGrid();
+  sub.textContent = menuText();
+  $('start').textContent = 'START RACE';
+  overlay.hidden = false;
+}
+
 function resetGrid() {
   rivals.forEach((r, i) => placeOnGrid(r, i + 1, [3, -3, 3][i]));
   placeOnGrid(player, 4, -3);
@@ -594,6 +634,7 @@ function startRace() {
   countdown = TEST ? 0.01 : 3.6;
   state = 'countdown';
   overlay.hidden = true;
+  $('pause').hidden = true;
   hud.root.hidden = false;
   touchUI.hidden = !isTouch;
   hud.last.textContent = fmt(null);
@@ -681,8 +722,8 @@ function applySelection() {
   rivalPace.corner = Math.sqrt(spec.grip / CARS[0].grip);
   rivalPace.top = terminalSpeed(spec) * 0.97;
   showWallet();
-  // rivals drive what the player drives, except the developer car, which stays exclusive
-  const rivalCar = spec.devOnly ? CARS.filter((c) => !c.devOnly).at(-1) : spec;
+  // rivals drive what the player drives, unless it is an exclusive car
+  const rivalCar = spec.devOnly || spec.special ? CARS.filter((c) => !c.devOnly && !c.special).at(-1) : spec;
   return Promise.all([
     dressCar(player, spec, sel.look),
     ...rivals.map((r, i) => {
@@ -1005,6 +1046,11 @@ let hudTick = 0;
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 20);
+  if (state === 'paused') {   // hold the picture, advance nothing
+    composer.render(0);
+    requestAnimationFrame(frame);
+    return;
+  }
   let throttle = 0;
 
   if (state === 'countdown') {
@@ -1088,6 +1134,10 @@ async function boot() {
   menu.hidden = false;
   $('start').addEventListener('click', startRace);
   $('open-garage').addEventListener('click', openGarage);
+  $('pause-btn').addEventListener('click', togglePause);
+  $('pause-resume').addEventListener('click', togglePause);
+  $('pause-restart').addEventListener('click', startRace);
+  $('pause-exit').addEventListener('click', exitToMenu);
   $('g-back').addEventListener('click', closeGarage);
   refreshBoard();
   if (TEST) startRace();
