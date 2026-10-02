@@ -12,7 +12,6 @@ import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalS
 
 const LAPS = 3;
 const WHEELBASE = 2.6;
-const WHEEL_RADIUS = 0.33;
 const CAR_RADIUS = 2.1;
 const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/';
 
@@ -121,93 +120,121 @@ function nearestIndex(x, z, hint) {
 // ---------------------------------------------------------------- cars
 
 const RIVAL_COLORS = [0x1463ff, 0xf2c200, 0xe9edf2];
-const carbon = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: 0.6, roughness: 0.38 });
+const WHEEL_NAMES = ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr'];
+const WHEEL_ONLY = { rims: true, caliper: true };
+const BODY_ONLY = { paint: true, interior: true };
+const gltfLoader = new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath(DRACO_PATH));
+const modelCache = new Map();
+let pending = 0;   // car models still loading
 
-function styleCar(model) {
-  // One set per car, so each can be painted independently.
-  const mats = {
-    body: new THREE.MeshPhysicalMaterial({ metalness: 1, roughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.03 }),
-    rims: new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.4 }),
-    caliper: new THREE.MeshStandardMaterial({ metalness: 0.5, roughness: 0.45 }),
-    interior: new THREE.MeshStandardMaterial({ roughness: 0.7 }),
-    glass: new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, metalness: 1, roughness: 0.04, transparent: true, opacity: 0.72 }),
-  };
-  const trim = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.45 });
-  const set = (name, mat) => { const o = model.getObjectByName(name); if (o && o.isMesh) o.material = mat; };
-
-  set('body', mats.body);
-  for (const n of ['rim_fl', 'rim_fr', 'rim_rr', 'rim_rl']) set(n, mats.rims);
-  set('trim', trim);
-  set('glass', mats.glass);
-  for (const n of ['leather', 'steering_leather']) set(n, mats.interior);
-
-  let tail = null;
-  const tailMesh = model.getObjectByName('lights_red');
-  if (tailMesh && tailMesh.isMesh) {
-    tail = tailMesh.material = tailMesh.material.clone();
-    tail.emissive = new THREE.Color(0xff1408);
+// Every car file shares one layout (see tools/build-car.mjs): a "body" mesh and four wheel
+// nodes centred on their axles, nose toward +z, tyres resting on y = 0.
+function loadModel(def) {
+  if (!modelCache.has(def.id)) {
+    modelCache.set(def.id, gltfLoader.loadAsync(def.file).then((gltf) => gltf.scene, (err) => {
+      console.warn(`${def.name} failed to load, using a stand-in.`, err);
+      return fallbackCarModel(def);
+    }));
   }
-  const head = model.getObjectByName('lights');
-  if (head && head.isMesh) {
-    head.material = head.material.clone();
-    head.material.emissive = new THREE.Color(0xfff2d8);
-    head.material.emissiveIntensity = 2.5;
-  }
+  return modelCache.get(def.id);
+}
 
+// Used only if a GLB can't be fetched, so the game still runs.
+function fallbackCarModel(def) {
+  const g = new THREE.Group();
+  const paint = new THREE.MeshStandardMaterial();
+  paint.name = def.mats.paint[0];
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 4.4).translate(0, 0.6, 0), paint);
+  body.name = 'body';
+  g.add(body);
+  const tire = new THREE.CylinderGeometry(0.33, 0.33, 0.28, 20).rotateZ(Math.PI / 2);
+  const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+  for (const [i, x, z] of [[0, 0.9, 1.4], [1, -0.9, 1.4], [2, 0.9, -1.4], [3, -0.9, -1.4]]) {
+    const w = new THREE.Mesh(tire, rubber);
+    w.name = WHEEL_NAMES[i];
+    w.position.set(x, 0.33, z);
+    g.add(w);
+  }
+  return g;
+}
+
+// Clones a model for one car and gives it its own copies of the materials the garage can change.
+function buildVisual(template, def) {
+  const model = template.clone(true);
+  const slots = { paint: [], rims: [], caliper: [], interior: [], glass: [], tail: [] };
+  const made = new Map();
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.castShadow = true;
-    if (/^brake(_\d+)?$/.test(o.name)) o.material = mats.caliper;
+    const inWheel = WHEEL_NAMES.includes(o.name) || WHEEL_NAMES.includes(o.parent.name);
+    const src = o.material;
+    const key = Object.keys(slots).find((k) => def.mats[k]?.includes(src.name) && !(WHEEL_ONLY[k] && !inWheel) && !(BODY_ONLY[k] && inWheel));
+    if (!key) return;
+    const id = `${key}:${src.uuid}`;
+    if (!made.has(id)) {
+      let mat;
+      if (key === 'paint') mat = new THREE.MeshPhysicalMaterial({ map: src.map });
+      else if (key === 'glass') mat = new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, metalness: 1, roughness: 0.04, transparent: true });
+      else {
+        mat = src.clone();
+        mat.userData.stock = src.color.clone();
+        if (key === 'tail') mat.emissive = new THREE.Color(0xff1408);
+      }
+      made.set(id, mat);
+      slots[key].push(mat);
+    }
+    o.material = made.get(id);
   });
-
-  const wheels = ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr'].map((n) => model.getObjectByName(n)).filter(Boolean);
+  const wheels = WHEEL_NAMES.map((n) => model.getObjectByName(n)).filter(Boolean);
   for (const w of wheels) w.rotation.order = 'YXZ';
-  return { wheels, tail, mats };
-}
-
-// Bolt-on aero that marks out the higher-tier cars. Sized from the body's bounding box.
-function buildKit(box) {
-  const rear = box.min.z, front = box.max.z, halfW = (box.max.x - box.min.x) / 2, deck = box.max.y * 0.76;
-  const part = (w, h, d, x, y, z) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), carbon);
-    m.position.set(x, y, z);
-    m.castShadow = true;
-    return m;
-  };
-  const lip = part(1.4, 0.04, 0.24, 0, deck + 0.04, rear + 0.3);
-  lip.rotation.x = 0.3;
-  const wing = new THREE.Group();
-  wing.add(part(1.72, 0.035, 0.38, 0, 0.3, 0), part(0.03, 0.17, 0.44, 0.87, 0.3, 0), part(0.03, 0.17, 0.44, -0.87, 0.3, 0));
-  wing.add(part(0.04, 0.3, 0.2, 0.48, 0.15, 0.02), part(0.04, 0.3, 0.2, -0.48, 0.15, 0.02));
-  wing.position.set(0, deck, rear + 0.48);
-  const splitter = part(halfW * 1.7, 0.03, 0.45, 0, 0.11, front - 0.34);
-  const skirts = new THREE.Group();
-  skirts.add(part(0.1, 0.05, 1.75, halfW - 0.06, 0.12, -0.17), part(0.1, 0.05, 1.75, 0.06 - halfW, 0.12, -0.17));
-  return { lip, wing, splitter, skirts };
-}
-
-function applyKit(car, tier) {
-  const { lip, wing, splitter, skirts } = car.kit;
-  lip.visible = tier === 1;
-  wing.visible = tier >= 2;
-  wing.scale.set(tier >= 4 ? 1.06 : 1, tier >= 4 ? 1.25 : 1, tier >= 4 ? 1.15 : 1);
-  splitter.visible = skirts.visible = tier >= 3;
+  return { model, wheels, slots };
 }
 
 function applyLook(car, look) {
-  const { body, rims, caliper, interior, glass } = car.mats;
-  body.color.setHex(look.paint);
-  body.metalness = look.finish.metalness;
-  body.roughness = look.finish.roughness;
-  body.clearcoat = look.finish.clearcoat;
-  body.clearcoatRoughness = look.finish.clearcoatRoughness;
-  rims.color.setHex(look.rims);
-  caliper.color.setHex(look.caliper);
-  interior.color.setHex(look.interior);
-  glass.opacity = look.tint;
+  const { paint, rims, caliper, interior, glass } = car.visual.slots;
+  for (const m of paint) {
+    m.color.setHex(look.paint);
+    m.metalness = look.finish.metalness;
+    m.roughness = look.finish.roughness;
+    m.clearcoat = look.finish.clearcoat;
+    m.clearcoatRoughness = look.finish.clearcoatRoughness;
+  }
+  // null means "leave it as the model shipped"
+  const tint = (mats, hex) => { for (const m of mats) hex == null ? m.color.copy(m.userData.stock) : m.color.setHex(hex); };
+  tint(rims, look.rims);
+  tint(caliper, look.caliper);
+  tint(interior, look.interior);
+  for (const m of glass) m.opacity = look.tint;
   car.glow.visible = look.glow != null;
   if (look.glow != null) car.glow.material.color.setHex(look.glow).multiplyScalar(1.6);
   car.color = look.paint;
+}
+
+// Puts the model for `def` on a car (loading it if needed) and paints it.
+async function dressCar(car, def, look) {
+  const token = ++car.token;
+  setPending(1);
+  try {
+    const template = await loadModel(def);
+    if (token !== car.token) return;   // a newer request replaced this one
+    if (car.def !== def) {
+      if (car.visual) {
+        car.tilt.remove(car.visual.model);
+        for (const mats of Object.values(car.visual.slots)) for (const m of mats) m.dispose();
+      }
+      car.visual = buildVisual(template, def);
+      car.def = def;
+      car.tilt.add(car.visual.model);
+    }
+    applyLook(car, look);
+  } finally {
+    setPending(-1);
+  }
+}
+
+function setPending(d) {
+  pending += d;
+  $('start').disabled = pending > 0;
 }
 
 const glowGeo = new THREE.PlaneGeometry(3.4, 6.2).rotateX(-Math.PI / 2);
@@ -226,44 +253,18 @@ const glowTex = (() => {
   return tex;
 })();
 
-// Used only if the GLB can't be fetched, so the game still runs.
-function fallbackCarModel() {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 4.4), new THREE.MeshStandardMaterial());
-  body.name = 'body';
-  body.position.y = 0.55;
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.45, 2), new THREE.MeshStandardMaterial());
-  cabin.name = 'glass';
-  cabin.position.set(0, 1.02, -0.3);
-  g.add(body, cabin);
-  const tire = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, 0.28, 20).rotateZ(Math.PI / 2);
-  const rubber = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
-  for (const [n, x, z] of [['wheel_fl', 0.9, 1.4], ['wheel_fr', -0.9, 1.4], ['wheel_rl', 0.9, -1.4], ['wheel_rr', -0.9, -1.4]]) {
-    const w = new THREE.Mesh(tire, rubber);
-    w.name = n;
-    w.position.set(x, WHEEL_RADIUS, z);
-    g.add(w);
-  }
-  return g;
-}
-
-function makeCar(template) {
-  const model = template.clone(true);
-  const { wheels, tail, mats } = styleCar(model);
-  model.rotation.y = Math.PI;      // the GLB faces -z; the game treats +z as forward
+function makeCar() {
   const tilt = new THREE.Group();  // body roll and pitch
   const root = new THREE.Group();
-  tilt.add(model);
-  const kit = buildKit(new THREE.Box3().setFromObject(tilt));
-  tilt.add(...Object.values(kit));
   const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
     map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   glow.position.y = 0.05;
+  glow.visible = false;
   root.add(tilt, glow);
   scene.add(root);
   return {
-    root, tilt, wheels, tail, mats, kit, glow, color: 0xffffff,
+    root, tilt, glow, visual: null, def: null, token: 0, color: 0xffffff,
     x: 0, z: 0, heading: 0, vx: 0, vz: 0, speed: 0,
     steer: 0, spin: 0, roll: 0, pitch: 0,
     idx: 0, lat: 0, prog: 0, laps: 0,
@@ -289,12 +290,13 @@ function syncCar(car, dt, braking) {
   car.root.rotation.y = car.heading;
   car.tilt.rotation.z = car.roll;
   car.tilt.rotation.x = car.pitch;
-  car.spin += (car.speed * dt) / WHEEL_RADIUS;
-  car.wheels.forEach((w, i) => {
-    w.rotation.x = -car.spin;
-    if (i < 2) w.rotation.y = car.steer * 0.45;
-  });
-  if (car.tail) car.tail.emissiveIntensity = braking ? 7 : 1.2;
+  car.spin += car.speed * dt;   // distance rolled
+  if (!car.visual) return;
+  for (const w of car.visual.wheels) {
+    w.rotation.x = car.spin / w.position.y;   // a wheel's axle height is its radius
+    if (w.position.z > 0) w.rotation.y = car.steer * 0.45;
+  }
+  for (const m of car.visual.slots.tail) m.emissiveIntensity = braking ? 7 : 1.2;
 }
 
 // ---------------------------------------------------------------- input
@@ -396,7 +398,7 @@ function resetGrid() {
 }
 
 function startRace() {
-  if (state === 'loading' || state === 'countdown' || state === 'garage') return;
+  if (state === 'loading' || state === 'countdown' || state === 'garage' || pending) return;
   localStorage.setItem('sc_name', nameInput.value.trim());
   nameInput.blur();
   audio.start();
@@ -451,15 +453,16 @@ function applySelection() {
   const sel = garage.selected();
   spec = sel.car;
   tier = sel.tier;
-  applyKit(player, tier);
-  applyLook(player, sel.look);
   rivalPace.corner = Math.sqrt(spec.grip / CARS[0].grip);
   rivalPace.top = terminalSpeed(spec) * 0.97;
-  for (const r of rivals) {
-    applyKit(r, tier);
-    r.skill = r.baseSkill + 0.012 * tier;
-  }
   showWallet();
+  return Promise.all([
+    dressCar(player, spec, sel.look),
+    ...rivals.map((r, i) => {
+      r.skill = r.baseSkill + 0.012 * tier;
+      return dressCar(r, spec, rivalLook(RIVAL_COLORS[i]));
+    }),
+  ]);
 }
 
 function openGarage() {
@@ -661,7 +664,7 @@ function updateCamera(dt) {
   const speedK = clamp(Math.abs(p.speed) / spec.top, 0, 1);
   if (camMode === 1) {
     const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-    camera.position.set(p.x + fx * 0.35, 1.08, p.z + fz * 0.35);
+    camera.position.set(p.x + fx * 0.9, 1.15, p.z + fz * 0.9);
     camera.lookAt(p.x + fx * 20, 0.9, p.z + fz * 20);
     camPos.set(0, 0, 0);
   } else {
@@ -773,28 +776,12 @@ function frame() {
 
 // ---------------------------------------------------------------- boot
 
-async function loadCarTemplate() {
-  try {
-    const draco = new DRACOLoader().setDecoderPath(DRACO_PATH);
-    const gltf = await new GLTFLoader().setDRACOLoader(draco).loadAsync('assets/ferrari.glb');
-    return gltf.scene.children[0] || gltf.scene;
-  } catch (err) {
-    console.warn('Car model failed to load, using fallback.', err);
-    return fallbackCarModel();
-  }
-}
-
 async function boot() {
-  const template = await loadCarTemplate();
-  rivals = [0.9, 0.86, 0.82].map((baseSkill, i) => {
-    const car = Object.assign(makeCar(template), { baseSkill });
-    applyLook(car, rivalLook(RIVAL_COLORS[i]));
-    return car;
-  });
-  player = makeCar(template);
+  rivals = [0.9, 0.86, 0.82].map((baseSkill) => Object.assign(makeCar(), { baseSkill }));
+  player = makeCar();
   cars = [player, ...rivals];
-  garage = createGarage({ onPreview: (previewTier, look) => { applyKit(player, previewTier); applyLook(player, look); } });
-  applySelection();
+  garage = createGarage({ onPreview: (previewTier, look) => dressCar(player, CARS[previewTier], look) });
+  await applySelection();
   resetGrid();
 
   state = 'menu';

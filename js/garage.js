@@ -7,12 +7,29 @@ export const ROLL_DRAG = 0.5;
 export const AIR_DRAG = 0.0007;
 
 // Ordered by tier. top = m/s the engine pulls toward, accel/grip/brake = m/s^2.
+// `mats` names the materials in each model file that the garage is allowed to recolour;
+// a car without an entry for a part simply doesn't offer that option.
 export const CARS = [
-  { id: 'strada', name: 'Strada', price: 0, top: 78, accel: 15, grip: 25, brake: 32, paint: 0 },
-  { id: 'veloce', name: 'Veloce S', price: 1200, top: 81, accel: 16, grip: 26.2, brake: 34, paint: 5 },
-  { id: 'corsa', name: 'Corsa GT', price: 3000, top: 84, accel: 17, grip: 27.4, brake: 36, paint: 3 },
-  { id: 'furia', name: 'Furia GTR', price: 6000, top: 87, accel: 18, grip: 28.6, brake: 38, paint: 8 },
-  { id: 'apex', name: 'Apex RS', price: 10000, top: 90, accel: 19, grip: 29.8, brake: 40, paint: 10 },
+  {
+    id: 'strada', name: 'Nissan GT-R', file: 'assets/cars/gtr.glb', price: 0, top: 78, accel: 15, grip: 25, brake: 32, paint: 9,
+    mats: { paint: ['r35_paint'], rims: ['r35_wheel_05a'], caliper: ['amdb11_caliper.002'], interior: ['r35_leather'], glass: ['r35_glass', 'r35_glass.001'], tail: ['r35_taillight_2017'] },
+  },
+  {
+    id: 'veloce', name: 'Ferrari 458', file: 'assets/cars/ferrari.glb', price: 1200, top: 81, accel: 16, grip: 26.2, brake: 34, paint: 0,
+    mats: { paint: ['Body_Color'], rims: ['metal_gray'], interior: ['Leather'], glass: ['Glass_Gray'], tail: ['Taillight_Glass'] },
+  },
+  {
+    id: 'corsa', name: 'Porsche 911 GT3 RS', file: 'assets/cars/gt3rs.glb', price: 3000, top: 84, accel: 17, grip: 27.4, brake: 36, paint: 8,
+    mats: { paint: ['lens_3'], rims: ['lens_16'], caliper: ['lens_20'], glass: ['lens_8', 'lens_59', 'lens_77'] },
+  },
+  {
+    id: 'furia', name: 'Lamborghini Huracán EVO', file: 'assets/cars/huracan.glb', price: 6000, top: 87, accel: 18, grip: 28.6, brake: 38, paint: 1,
+    mats: { paint: ['Huracan_EVO_Paint'], rims: ['Gloss_Black', 'Chrome'], caliper: ['Caliper_Color'], interior: ['Meshesleatherdarkdif1_diff'], glass: ['Glass_Parts'], tail: ['Red_Glass'] },
+  },
+  {
+    id: 'apex', name: 'McLaren Spider', file: 'assets/cars/mclaren.glb', price: 10000, top: 90, accel: 19, grip: 29.8, brake: 40, paint: 5,
+    mats: { paint: ['Primary_Paint'], rims: ['Wheel_1A'], interior: ['Suede_BMP'], glass: ['Glass_Full'], tail: ['Brake_Light'] },
+  },
 ];
 
 const FINISHES = [
@@ -26,10 +43,10 @@ const TINTS = [{ name: 'Light', opacity: 0.45 }, { name: 'Dark', opacity: 0.72 }
 const OPTIONS = [
   { key: 'paint', label: 'Paint', colors: [0xc8102e, 0xff5a1f, 0xf2c200, 0x2bb54a, 0x0f6b4f, 0x1463ff, 0x0b1f4d, 0x7a2bd6, 0xe9edf2, 0x8a8f98, 0x101114, 0xff4fa3] },
   { key: 'finish', label: 'Finish', names: FINISHES.map((f) => f.name) },
-  { key: 'rims', label: 'Rims', colors: [0xffffff, 0x6b7078, 0x0c0c0e, 0xc9a24a, 0x8a5a33, 0xc8102e, 0x1463ff] },
-  { key: 'caliper', label: 'Brakes', colors: [0x808080, 0xd11a1a, 0xf2c200, 0x1463ff, 0x2bb54a, 0xff7a1f] },
-  { key: 'interior', label: 'Interior', colors: [0x28282b, 0xb08a5a, 0x7a1c1c, 0xd9cfbd, 0x1d2f55] },
-  { key: 'tint', label: 'Windows', names: TINTS.map((t) => t.name) },
+  { key: 'rims', label: 'Rims', part: 'rims', names: ['Stock'], colors: [0xffffff, 0x6b7078, 0x0c0c0e, 0xc9a24a, 0x8a5a33, 0xc8102e, 0x1463ff] },
+  { key: 'caliper', label: 'Brakes', part: 'caliper', names: ['Stock'], colors: [ 0xd11a1a, 0xf2c200, 0x1463ff, 0x2bb54a, 0xff7a1f] },
+  { key: 'interior', label: 'Interior', part: 'interior', names: ['Stock'], colors: [0x28282b, 0xb08a5a, 0x7a1c1c, 0xd9cfbd, 0x1d2f55] },
+  { key: 'tint', label: 'Windows', part: 'glass', names: TINTS.map((t) => t.name) },
   { key: 'glow', label: 'Underglow', names: ['Off'], colors: [0x2ad4ff, 0xff2bd6, 0x39ff6a, 0xff7a1f, 0xffffff, 0x8a4dff] },
 ];
 const colorsOf = (key) => OPTIONS.find((o) => o.key === key).colors;
@@ -49,9 +66,9 @@ function resolveLook(look) {
   return {
     paint: colorsOf('paint')[look.paint],
     finish: FINISHES[look.finish],
-    rims: colorsOf('rims')[look.rims],
-    caliper: colorsOf('caliper')[look.caliper],
-    interior: colorsOf('interior')[look.interior],
+    rims: look.rims ? colorsOf('rims')[look.rims - 1] : null,
+    caliper: look.caliper ? colorsOf('caliper')[look.caliper - 1] : null,
+    interior: look.interior ? colorsOf('interior')[look.interior - 1] : null,
     tint: TINTS[look.tint].opacity,
     glow: look.glow ? colorsOf('glow')[look.glow - 1] : null,
   };
@@ -143,6 +160,7 @@ export function createGarage({ onPreview }) {
     if (!owns(tier)) return;
     const look = lookOf(tier);
     for (const opt of OPTIONS) {
+      if (opt.part && !CARS[tier].mats[opt.part]) continue;
       const row = make('div', 'opt-row');
       row.append(make('span', 'opt-label', opt.label));
       const choices = make('div', 'choices');
@@ -183,7 +201,11 @@ export function createGarage({ onPreview }) {
     else { btn.textContent = `NEED ${cr(car.price - save.credits)} MORE`; btn.disabled = true; }
 
     renderCustom(view);
-    onPreview(view, resolveLook(lookOf(view)));
+    ui.root.classList.add('busy');
+    const shown = view;
+    Promise.resolve(onPreview(view, resolveLook(lookOf(view)))).finally(() => {
+      if (shown === view) ui.root.classList.remove('busy');
+    });
   }
 
   ui.action.addEventListener('click', () => {

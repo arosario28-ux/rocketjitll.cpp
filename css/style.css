@@ -192,8 +192,10 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
 .g-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .g-car { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .g-car > div { flex: 1; text-align: center; min-width: 0; }
-.g-car h2 { margin: 0; font-size: 30px; font-weight: 900; font-style: italic; line-height: 1.1; }
+.g-car h2 { margin: 0; font-size: 24px; font-weight: 900; font-style: italic; line-height: 1.1; }
 .g-car p { margin: 4px 0 0; font-size: 12px; opacity: .75; }
+#garage.busy #g-tag::after { content: ' · loading…'; }
+#start:disabled { filter: grayscale(.6); cursor: default; }
 
 .stat-row { margin-bottom: 10px; }
 .stat-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
