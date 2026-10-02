@@ -2,8 +2,6 @@
 // and the garage screen where cars are bought, selected and customised.
 // Progress is kept in localStorage, and mirrored to the player's account when signed in.
 
-import { buildF1 } from './f1.js';
-
 // Resistance terms shared with the physics in main.js.
 export const ROLL_DRAG = 0.5;
 export const AIR_DRAG = 0.0007;
@@ -14,7 +12,7 @@ const stats = (level) => ({ level, top: 78 + 12 * level, accel: 15 + 4 * level, 
 
 // Ordered slowest to fastest. `mats` names the materials in each model that the garage may
 // recolour; a car without an entry for a part simply doesn't offer that option.
-// `file` is a GLB in the shared layout (see tools/build-car.mjs); `build` makes the model in code.
+// `file` is a GLB in the shared layout (see tools/build-car.mjs).
 export const CARS = [
   {
     id: 'evo', name: 'Mitsubishi Lancer Evo X', file: 'assets/cars/evo.glb', price: 0, paint: 5, ...stats(0),
@@ -53,10 +51,10 @@ export const CARS = [
     mats: { paint: ['secondary'], rims: ['wheel_rf.1'], glass: ['glass.001'] },
   },
   {
-    // Not for sale: only developer accounts see it.
-    id: 'f1', name: 'Apex F1', build: buildF1, devOnly: true, price: 0, paint: 0,
+    // Not for sale: only developer accounts see it. White paint leaves its livery untouched.
+    id: 'f1', name: 'McLaren MCL35M F1', file: 'assets/cars/f1.glb', devOnly: true, price: 0, paint: 8, finish: 0,
     level: 1.3, top: 104, accel: 26, grip: 37, brake: 52,
-    mats: { paint: ['f1_paint'], rims: ['f1_rim'], tail: ['f1_tail'] },
+    mats: { paint: ['mcl35m_c_png', 'mcl35m_png'], rims: ['rim_png'] },
   },
 ];
 
@@ -157,7 +155,7 @@ export function createGarage({ onPreview, onSave }) {
   };
 
   function lookOf(car) {
-    const look = { ...DEFAULT_LOOK, paint: car.paint, ...save.looks[car.id] };
+    const look = { ...DEFAULT_LOOK, paint: car.paint, finish: car.finish ?? DEFAULT_LOOK.finish, ...save.looks[car.id] };
     for (const opt of OPTIONS) {
       const count = (opt.names?.length || 0) + (opt.colors?.length || 0);
       if (!Number.isInteger(look[opt.key]) || look[opt.key] < 0 || look[opt.key] >= count) look[opt.key] = DEFAULT_LOOK[opt.key];

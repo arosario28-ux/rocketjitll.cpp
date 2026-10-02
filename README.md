@@ -48,15 +48,13 @@ Race results pay credits (more for a win, more for longer races, and more in fas
 | Lamborghini Huracán EVO | 8,500 |
 | McLaren Spider | 11,500 |
 | Bugatti Veyron | 15,000 |
-| Apex F1 | developer accounts only |
-
-The Apex F1 is built in code from three.js primitives (`js/f1.js`) rather than loaded from a file.
+| McLaren MCL35M F1 | developer accounts only |
 
 ## Accounts
 
 Playing as a guest keeps progress in the browser. Signing up with a username and passcode stores it in Supabase instead, so it follows you between devices, and your username is used on the leaderboards.
 
-A developer account owns every car, including the Apex F1. An account becomes a developer account by entering a developer code under "Dev code" after logging in. Codes are stored only as hashes in the `dev_codes` table; to issue a new one, run this in the Supabase SQL editor:
+A developer account owns every car, including the F1 car. An account becomes a developer account by entering a developer code under "Dev code" after logging in. Codes are stored only as hashes in the `dev_codes` table; to issue a new one, run this in the Supabase SQL editor:
 
 ```sql
 insert into public.dev_codes (code_hash)
@@ -74,7 +72,6 @@ Limits worth knowing: there is no passcode reset, so a forgotten passcode means 
 - `js/track.js` — the track layouts (each a closed spline through a list of points) and the code that generates road, kerbs, guard rails, lamps, trees and hills for whichever one is selected.
 - `js/garage.js` — the car list and stats, saved progress, and the garage screen.
 - `js/account.js` — sign-up, login and progress sync against Supabase.
-- `js/f1.js` — the developer-only single-seater, modelled in code.
 - `js/leaderboard.js` — reads and writes lap times, per track, in a Supabase table (`lap_times`) using the project's publishable key. Row level security allows reading and inserting only.
 - `tools/build-car.mjs` — the script that prepared the files in `assets/cars/`. It rescales each source model, splits the wheels off so they can spin and steer, merges geometry per material, simplifies it and compresses it. It needs Node with `@gltf-transform/cli` installed; the game itself does not.
 
@@ -92,6 +89,7 @@ The car models are from Sketchfab, used under their Creative Commons licences. E
 
 - [Mitsubishi Lancer evo X (2016)](https://sketchfab.com/WarEntertainment) and [BMW M4 [Realistic Free]](https://sketchfab.com/WarEntertainment) by WARENTERTAINMENT, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [2019 Chevrolet Corvette C8 Stingray](https://sketchfab.com/Hari31) by Hari, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+- [F1 2021 McLaren MCL35M](https://sketchfab.com/excalibur) by Excalibur, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [Bugatti Veyron fully rigged](https://sketchfab.com/matikassa2) by Eyasu Biyaylgn, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [Nissan Skyline GTR r35](https://sketchfab.com/3d-models/nissan-skyline-gtr-r35-7b142ea3376e4811a326256c59bbc7a2) by [Black Snow](https://sketchfab.com/BlackSnow02), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - Ferrari 458 Italia by [vicent091036](https://sketchfab.com/vicent091036), as distributed with the [three.js examples](https://threejs.org/examples/#webgl_materials_car)

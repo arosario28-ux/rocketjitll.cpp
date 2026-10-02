@@ -305,8 +305,7 @@ let pending = 0;   // car models still loading
 // nodes centred on their axles, nose toward +z, tyres resting on y = 0.
 function loadModel(def) {
   if (!modelCache.has(def.id)) {
-    const loading = def.build ? Promise.resolve().then(def.build) : gltfLoader.loadAsync(def.file).then((gltf) => gltf.scene);
-    modelCache.set(def.id, loading.catch((err) => {
+    modelCache.set(def.id, gltfLoader.loadAsync(def.file).then((gltf) => gltf.scene, (err) => {
       console.warn(`${def.name} failed to load, using a stand-in.`, err);
       return fallbackCarModel(def);
     }));
