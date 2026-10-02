@@ -39,13 +39,14 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.5;
+renderer.info.autoReset = false;   // so the per-frame totals cover every pass (see frame())
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 4000);
 
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
   type: THREE.HalfFloatType,
-  samples: 4,
+  samples: 2,
 }));
 composer.setPixelRatio(renderer.getPixelRatio());
 composer.setSize(innerWidth, innerHeight);
@@ -161,6 +162,52 @@ function applyTheme(theme) {
   scene.add(sky, dome);   // the bake borrowed whichever one it used
   setWeather(theme.weather);
   if (player) player.headlight.visible = nightScene;
+}
+
+// ---------------------------------------------------------------- graphics quality
+
+// Resolution, shadows and bloom are the expensive parts. On "Auto" the game starts high and steps
+// down a level whenever the frame rate stays low; it never steps back up, to avoid flip-flopping.
+const QUALITY = [
+  { name: 'High', dpr: 1.75, shadow: 2048, bloom: true },
+  { name: 'Medium', dpr: 1.25, shadow: 1024, bloom: true },
+  { name: 'Low', dpr: 1, shadow: 0, bloom: true },
+  { name: 'Lowest', dpr: 0.75, shadow: 0, bloom: false },
+];
+let quality = 0;
+let autoQuality = true;
+const perf = { frames: 0, time: 0, settle: 90 };
+
+function setQuality(level) {
+  quality = clamp(level, 0, QUALITY.length - 1);
+  const q = QUALITY[quality];
+  const dpr = Math.min(devicePixelRatio, q.dpr);
+  renderer.setPixelRatio(dpr);
+  composer.setPixelRatio(dpr);
+  if (q.shadow && sun.shadow.mapSize.x !== q.shadow) {
+    sun.shadow.mapSize.set(q.shadow, q.shadow);
+    sun.shadow.map?.dispose();
+    sun.shadow.map = null;
+  }
+  sun.castShadow = q.shadow > 0;
+  bloom.enabled = q.bloom;
+  if (player) player.blob.visible = !q.shadow;   // a soft blob stands in when real shadows are off
+  perf.frames = perf.time = 0;
+  perf.settle = 90;   // ignore the hitch while shaders rebuild
+  for (const chip of $('quality-choices').children) chip.classList.toggle('on', chip.dataset.level === (autoQuality ? 'auto' : String(quality)));
+  $('quality-now').textContent = autoQuality ? `Auto · ${q.name}` : q.name;
+}
+
+function watchFrameRate(rawDt) {
+  // a long gap means the tab was in the background, not that the game is slow
+  if (!autoQuality || quality >= QUALITY.length - 1 || rawDt > 0.25) return;
+  if (perf.settle > 0) { perf.settle--; return; }
+  perf.frames++;
+  perf.time += rawDt;
+  if (perf.frames < 100) return;
+  const fps = perf.frames / perf.time;
+  perf.frames = perf.time = 0;
+  if (fps < 45) setQuality(quality + 1);
 }
 
 // ---------------------------------------------------------------- weather & smoke
@@ -334,13 +381,13 @@ function fallbackCarModel(def) {
 }
 
 // Clones a model for one car and gives it its own copies of the materials the garage can change.
-function buildVisual(template, def) {
+function buildVisual(template, def, shadow) {
   const model = template.clone(true);
   const slots = { paint: [], rims: [], caliper: [], interior: [], glass: [], tail: [] };
   const made = new Map();
   model.traverse((o) => {
     if (!o.isMesh) return;
-    o.castShadow = true;
+    o.castShadow = shadow;
     const inWheel = WHEEL_NAMES.includes(o.name) || WHEEL_NAMES.includes(o.parent.name);
     const src = o.material;
     const key = Object.keys(slots).find((k) => def.mats[k]?.includes(src.name) && !(WHEEL_ONLY[k] && !inWheel) && !(BODY_ONLY[k] && inWheel));
@@ -397,7 +444,8 @@ async function dressCar(car, def, look) {
         car.tilt.remove(car.visual.model);
         for (const mats of Object.values(car.visual.slots)) for (const m of mats) m.dispose();
       }
-      car.visual = buildVisual(template, def);
+      // only the player's car casts a real shadow; the others get a cheap blob underneath
+      car.visual = buildVisual(template, def, car === player);
       car.def = def;
       car.tilt.add(car.visual.model);
     }
@@ -436,14 +484,18 @@ function makeCar() {
   }));
   glow.position.y = 0.05;
   glow.visible = false;
+  const blob = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({
+    map: dotTex, color: 0x000000, transparent: true, opacity: 0.6, depthWrite: false,
+  }));
+  blob.position.y = 0.045;
   const headlight = new THREE.SpotLight(0xdfe8ff, 220, 110, 0.55, 0.7, 1.6);
   headlight.position.set(0, 0.8, 1.6);
   headlight.target.position.set(0, 0, 30);
   headlight.visible = false;
-  root.add(tilt, glow, headlight, headlight.target);
+  root.add(tilt, glow, blob, headlight, headlight.target);
   scene.add(root);
   return {
-    root, tilt, glow, headlight, visual: null, def: null, token: 0, color: 0xffffff,
+    root, tilt, glow, blob, headlight, visual: null, def: null, token: 0, color: 0xffffff,
     x: 0, z: 0, heading: 0, vx: 0, vz: 0, speed: 0,
     steer: 0, spin: 0, roll: 0, pitch: 0,
     idx: 0, lat: 0, prog: 0, laps: 0,
@@ -1277,7 +1329,10 @@ const clock = new THREE.Clock();
 let hudTick = 0;
 
 function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 20);
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 1 / 20);
+  if (state !== 'loading' && state !== 'paused') watchFrameRate(rawDt);
+  renderer.info.reset();
   if (state === 'paused') {   // hold the picture, advance nothing
     composer.render(0);
     requestAnimationFrame(frame);
@@ -1332,6 +1387,23 @@ function frame() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  for (const [level, label] of [['auto', 'Auto'], ['0', 'High'], ['1', 'Med'], ['2', 'Low'], ['3', 'Min']]) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = label;
+    chip.dataset.level = level;
+    chip.addEventListener('click', () => {
+      autoQuality = level === 'auto';
+      localStorage.setItem('sc_quality', level);
+      setQuality(autoQuality ? 0 : Number(level));
+    });
+    $('quality-choices').append(chip);
+  }
+  const savedQuality = localStorage.getItem('sc_quality') || 'auto';
+  autoQuality = savedQuality === 'auto';
+  // phones and tablets start a step down
+  setQuality(autoQuality ? (matchMedia('(pointer: coarse)').matches ? 1 : 0) : Number(savedQuality) || 0);
   await loadNature();   // scenery models, needed before the first track is built
   for (const n of LAP_CHOICES) {
     const chip = document.createElement('button');
@@ -1351,6 +1423,7 @@ async function boot() {
   rivals = [0.9, 0.86, 0.82].map((baseSkill) => Object.assign(makeCar(), { baseSkill }));
   player = makeCar();
   player.headlight.visible = nightScene;
+  player.blob.visible = !QUALITY[quality].shadow;
   cars = [player, ...rivals];
   garage = createGarage({
     onPreview: (car, look) => dressCar(player, car, look),
@@ -1392,7 +1465,7 @@ async function boot() {
   else if (TEST) startRace();
 }
 
-window.__game = { get state() { return state; }, get online() { return online; }, get garage() { return garage; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
+window.__game = { get state() { return state; }, get stats() { return { ...renderer.info.render, quality: QUALITY[quality].name }; }, get online() { return online; }, get garage() { return garage; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
 
 requestAnimationFrame(frame);
 boot();

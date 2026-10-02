@@ -308,24 +308,33 @@ export function buildTrack(renderer, def) {
     }
     return spots;
   }
-  // One instanced mesh with an instance at each spot; place(i, spot) fills v, q, sc and may return a colour.
+  // Instances of one geometry, one per spot; place(i, spot) fills v, q, sc and may return a colour.
+  // Large sets are split into map squares, one instanced mesh each, so that only the squares in
+  // view (and in range of the shadow) are drawn rather than every tree on the map every frame.
+  const CELL = 130;
   function instances(geo, mat, spots, place, shadow = true) {
-    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    const cells = new Map();
     spots.forEach((spot, i) => {
       q.identity(); sc.copy(one);
       const c = place(i, spot);
-      m4.compose(v, q, sc);
-      mesh.setMatrixAt(i, m4);
-      if (c) mesh.setColorAt(i, c);
+      const key = spots.length > 100 ? `${Math.floor(v.x / CELL)},${Math.floor(v.z / CELL)}` : '';
+      let cell = cells.get(key);
+      if (!cell) cells.set(key, cell = { matrices: [], colors: [] });
+      cell.matrices.push(new THREE.Matrix4().compose(v, q, sc));
+      if (c) cell.colors.push(c.clone());
     });
-    mesh.castShadow = shadow;
-    group.add(mesh);
-    return mesh;
+    for (const cell of cells.values()) {
+      const mesh = new THREE.InstancedMesh(geo, mat, cell.matrices.length);
+      cell.matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
+      cell.colors.forEach((c, i) => mesh.setColorAt(i, c));
+      mesh.castShadow = shadow;
+      group.add(mesh);
+    }
   }
   // Scatters nature models: each spot gets one of `names` at a random size and turn.
   // `tint(kind)` may return a colour to repaint a material (snow on pines, say). Returns false
   // if none of the models loaded, so the caller can fall back to plain shapes.
-  function plant(names, spots, minH, maxH, tint) {
+  function plant(names, spots, minH, maxH, tint, shadow = true) {
     const ready = names.filter((n) => nature[n]);
     if (!ready.length) return false;
     const picks = spots.map(() => ({ name: ready[Math.floor(rand() * ready.length)], h: minH + rand() * (maxH - minH), turn: rand() * Math.PI * 2 }));
@@ -339,7 +348,7 @@ export function buildTrack(renderer, def) {
           q.setFromAxisAngle(up, pick.turn);
           sc.setScalar(pick.h);
           return new THREE.Color().setScalar(0.78 + rand() * 0.44);   // no two quite the same shade
-        });
+        }, shadow);
       }
     }
     return true;
@@ -777,8 +786,8 @@ export function buildTrack(renderer, def) {
 
   // tufts of grass and wild flowers close to the track
   function meadow(count, flowers = true, tint) {
-    plant(['grass_large', 'grass_leafsLarge', 'grass'], scatter(count, WALL + 1.5, 60), 0.45, 1.0, tint);
-    if (flowers) plant(['flower_yellowA', 'flower_redA', 'flower_purpleA'], scatter(Math.round(count / 5), WALL + 1.5, 45), 0.4, 0.7);
+    plant(['grass_large', 'grass_leafsLarge', 'grass'], scatter(count, WALL + 1.5, 60), 0.45, 1.0, tint, false);
+    if (flowers) plant(['flower_yellowA', 'flower_redA', 'flower_purpleA'], scatter(Math.round(count / 5), WALL + 1.5, 45), 0.4, 0.7, null, false);
   }
 
   function palms(count) {
@@ -788,7 +797,7 @@ export function buildTrack(renderer, def) {
 
   function bushes(count, hue) {
     const spots = scatter(count, WALL + 2.5, 70);
-    if (plant(['plant_bushDetailed', 'plant_bushLarge'], spots, 0.9, 2.2)) return;
+    if (plant(['plant_bushDetailed', 'plant_bushLarge'], spots, 0.9, 2.2, null, false)) return;
     instances(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), spots, (i, [x, z]) => {
       const s = 0.6 + rand() * 1.1;
       v.set(x, s * 0.45, z);
