@@ -20,7 +20,7 @@
 
   <div id="hud" hidden>
     <div class="hud-top-left">
-      <div class="stat"><span class="label">POS</span><span id="hud-pos">4</span><small>/4</small></div>
+      <div class="stat"><span class="label">POS</span><span id="hud-pos">4</span><small id="hud-total">/4</small></div>
       <div class="stat"><span class="label">LAP</span><span id="hud-lap">1</span><small id="hud-laps">/3</small></div>
     </div>
     <div class="hud-top-right">
@@ -99,6 +99,10 @@
           <div id="lap-choices" class="choices"></div>
         </div>
         <button id="start">START RACE</button>
+        <div class="online-row">
+          <button id="online-btn">ONLINE 1 v 1</button>
+          <span id="online-status" role="status"></span>
+        </div>
         <div class="garage-row">
           <button id="open-garage">GARAGE</button>
           <span id="wallet"></span>

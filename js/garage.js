@@ -12,53 +12,65 @@ const stats = (level) => ({ level, top: 78 + 12 * level, accel: 15 + 4 * level, 
 
 // Ordered slowest to fastest. `mats` names the materials in each model that the garage may
 // recolour; a car without an entry for a part simply doesn't offer that option.
-// `file` is a GLB in the shared layout (see tools/build-car.mjs).
+// `file` is a GLB in the shared layout (see tools/build-car.mjs). `engine` shapes the synthesised
+// engine note in main.js: cylinder count, redline, and how much burble, scream and turbo whistle.
 export const CARS = [
   {
-    id: 'evo', name: 'Mitsubishi Lancer Evo X', file: 'assets/cars/evo.glb', price: 0, paint: 5, ...stats(0),
+    id: 'evo', engine: { cyl: 4, redline: 7000, burble: 0.35, scream: 0.15, turbo: 1 },
+    name: 'Mitsubishi Lancer Evo X', file: 'assets/cars/evo.glb', price: 0, paint: 5, ...stats(0),
     mats: { paint: ['material_0'], rims: ['material_18'], glass: ['material_34', 'material_30'] },
   },
   {
-    id: 'm4', name: 'BMW M4', file: 'assets/cars/m4.glb', price: 700, paint: 6, ...stats(0.125),
+    id: 'm4', engine: { cyl: 6, redline: 7200, burble: 0.3, scream: 0.3, turbo: 1 },
+    name: 'BMW M4', file: 'assets/cars/m4.glb', price: 700, paint: 6, ...stats(0.125),
     mats: { paint: ['Material_692'], rims: ['Material_753'], caliper: ['Material_773'], glass: ['Material_775', 'Material_699'] },
   },
   {
-    id: 'strada', name: 'Nissan GT-R', file: 'assets/cars/gtr.glb', price: 1500, paint: 9, ...stats(0.25),
+    id: 'strada', engine: { cyl: 6, redline: 7000, burble: 0.35, scream: 0.25, turbo: 1 },
+    name: 'Nissan GT-R', file: 'assets/cars/gtr.glb', price: 1500, paint: 9, ...stats(0.25),
     mats: { paint: ['r35_paint'], rims: ['r35_wheel_05a'], caliper: ['amdb11_caliper.002'], interior: ['r35_leather'], glass: ['r35_glass', 'r35_glass.001'], tail: ['r35_taillight_2017'] },
   },
   {
-    id: 'c8', name: 'Chevrolet Corvette C8', file: 'assets/cars/c8.glb', price: 2500, paint: 2, ...stats(0.375),
+    id: 'c8', engine: { cyl: 8, redline: 6500, burble: 0.9, scream: 0.1, turbo: 0 },
+    name: 'Chevrolet Corvette C8', file: 'assets/cars/c8.glb', price: 2500, paint: 2, ...stats(0.375),
     mats: { paint: ['Body_Color'], rims: ['material'], glass: ['Windshield', 'Other_Glasses_than_Windshield'] },
   },
   {
-    id: 'veloce', name: 'Ferrari 458', file: 'assets/cars/ferrari.glb', price: 4000, paint: 0, ...stats(0.5),
+    id: 'veloce', engine: { cyl: 8, redline: 9000, burble: 0.2, scream: 0.6, turbo: 0 },
+    name: 'Ferrari 458', file: 'assets/cars/ferrari.glb', price: 4000, paint: 0, ...stats(0.5),
     mats: { paint: ['Body_Color'], rims: ['metal_gray'], interior: ['Leather'], glass: ['Glass_Gray'], tail: ['Taillight_Glass'] },
   },
   {
-    id: 'corsa', name: 'Porsche 911 GT3 RS', file: 'assets/cars/gt3rs.glb', price: 6000, paint: 8, ...stats(0.625),
+    id: 'corsa', engine: { cyl: 6, redline: 9000, burble: 0.2, scream: 0.55, turbo: 0 },
+    name: 'Porsche 911 GT3 RS', file: 'assets/cars/gt3rs.glb', price: 6000, paint: 8, ...stats(0.625),
     mats: { paint: ['lens_3'], rims: ['lens_16'], caliper: ['lens_20'], glass: ['lens_8', 'lens_59', 'lens_77'] },
   },
   {
-    id: 'furia', name: 'Lamborghini Huracán EVO', file: 'assets/cars/huracan.glb', price: 8500, paint: 1, ...stats(0.75),
+    id: 'furia', engine: { cyl: 10, redline: 8500, burble: 0.25, scream: 0.6, turbo: 0 },
+    name: 'Lamborghini Huracán EVO', file: 'assets/cars/huracan.glb', price: 8500, paint: 1, ...stats(0.75),
     mats: { paint: ['Huracan_EVO_Paint'], rims: ['Gloss_Black', 'Chrome'], caliper: ['Caliper_Color'], interior: ['Meshesleatherdarkdif1_diff'], glass: ['Glass_Parts'], tail: ['Red_Glass'] },
   },
   {
-    id: 'apex', name: 'McLaren Spider', file: 'assets/cars/mclaren.glb', price: 11500, paint: 7, ...stats(0.875),
+    id: 'apex', engine: { cyl: 8, redline: 8500, burble: 0.3, scream: 0.45, turbo: 1 },
+    name: 'McLaren Spider', file: 'assets/cars/mclaren.glb', price: 11500, paint: 7, ...stats(0.875),
     mats: { paint: ['Primary_Paint'], rims: ['Wheel_1A'], interior: ['Suede_BMP'], glass: ['Glass_Full'], tail: ['Brake_Light'] },
   },
   {
-    id: 'veyron', name: 'Bugatti Veyron', file: 'assets/cars/veyron.glb', price: 15000, paint: 0, ...stats(1),
+    id: 'veyron', engine: { cyl: 16, redline: 6500, burble: 0.6, scream: 0.2, turbo: 1 },
+    name: 'Bugatti Veyron', file: 'assets/cars/veyron.glb', price: 15000, paint: 0, ...stats(1),
     mats: { paint: ['secondary'], rims: ['wheel_rf.1'], glass: ['glass.001'] },
   },
   {
     // Granted to one account by name in the database (players.special_cars); nobody else sees it.
-    id: 'connor', name: "Connor's Car", file: 'assets/cars/huayra.glb', special: true, price: 0, paint: 7,
+    id: 'connor', engine: { cyl: 12, redline: 6500, burble: 0.35, scream: 0.5, turbo: 1 },
+    name: "Connor's Car", file: 'assets/cars/huayra.glb', special: true, price: 0, paint: 7,
     level: 1.2, top: 102, accel: 24, grip: 35, brake: 50,
     mats: { paint: ['PAG_HUAYRA_PAINT'], rims: ['pag_wheels_b'], caliper: ['amdb11_caliper.002'], interior: ['PAG_HUAYRA_LEATHER'], glass: ['pag_glass'], tail: ['pag_taillight_L'] },
   },
   {
     // Not for sale: only developer accounts see it. White paint leaves its livery untouched.
-    id: 'f1', name: 'McLaren MCL35M F1', file: 'assets/cars/f1.glb', devOnly: true, price: 0, paint: 8, finish: 0,
+    id: 'f1', engine: { cyl: 6, redline: 12000, burble: 0.15, scream: 0.7, turbo: 1 },
+    name: 'McLaren MCL35M F1', file: 'assets/cars/f1.glb', devOnly: true, price: 0, paint: 8, finish: 0,
     level: 1.3, top: 104, accel: 26, grip: 37, brake: 52,
     mats: { paint: ['mcl35m_c_png', 'mcl35m_png'], rims: ['rim_png'] },
   },

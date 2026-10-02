@@ -10,6 +10,7 @@ import { buildTrack, ROAD_HALF, WALL, TRACKS } from './track.js';
 import { fetchBoard, submitLap } from './leaderboard.js';
 import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalSpeed } from './garage.js';
 import { account } from './account.js';
+import { createOnline } from './online.js';
 
 const LAP_CHOICES = [1, 3, 5, 10];
 const WHEELBASE = 2.6;
@@ -511,7 +512,7 @@ addEventListener('keydown', (e) => {
   }
   if (KEYS[e.code]) { input[KEYS[e.code]] = true; e.preventDefault(); }
   else if (e.code === 'KeyC' && !e.repeat) camMode = (camMode + 1) % 2;
-  else if (e.code === 'KeyR' && !e.repeat && state !== 'loading') startRace();
+  else if (e.code === 'KeyR' && !e.repeat && state !== 'loading' && !online) startRace();
   else if (e.code === 'KeyM' && !e.repeat) audio.toggleMute();
   else if (e.code === 'Enter' && (state === 'menu' || state === 'finished')) startRace();
 });
@@ -530,6 +531,9 @@ for (const btn of touchUI.querySelectorAll('button')) {
 
 // ---------------------------------------------------------------- engine sound
 
+// Synthesised, but shaped per engine: the pitch is the real firing frequency for that cylinder
+// count and rev range, `burble` adds the half-speed throb of a cross-plane V8, `scream` the
+// upper harmonics of a high-revving flat-plane or V10/V12, and `turbo` an induction whistle.
 const audio = {
   ctx: null, muted: false,
   start() {
@@ -541,25 +545,53 @@ const audio = {
     this.master.gain.value = 0;
     this.filter = ctx.createBiquadFilter();
     this.filter.type = 'lowpass';
-    this.oscA = ctx.createOscillator(); this.oscA.type = 'sawtooth';
-    this.oscB = ctx.createOscillator(); this.oscB.type = 'square';
-    const subGain = ctx.createGain(); subGain.gain.value = 0.5;
-    this.oscA.connect(this.filter);
-    this.oscB.connect(subGain).connect(this.filter);
-    this.filter.connect(this.master).connect(ctx.destination);
-    this.oscA.start(); this.oscB.start();
+    this.filter.Q.value = 1.2;
+    const shaper = ctx.createWaveShaper();   // soft clipping, for exhaust rasp
+    shaper.curve = Float32Array.from({ length: 512 }, (_, i) => Math.tanh((i / 255.5 - 1) * 2.4));
+    const voice = (type) => {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = type;
+      osc.connect(gain).connect(shaper);
+      osc.start();
+      return { osc, gain };
+    };
+    this.fire = voice('sawtooth');
+    this.sub = voice('square');
+    this.high = voice('triangle');
+    shaper.connect(this.filter).connect(this.master).connect(ctx.destination);
+
+    const noise = ctx.createBufferSource();
+    const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    noise.buffer = buffer;
+    noise.loop = true;
+    this.whistle = ctx.createBiquadFilter();
+    this.whistle.type = 'bandpass';
+    this.whistle.Q.value = 9;
+    this.turbo = ctx.createGain();
+    this.turbo.gain.value = 0;
+    noise.connect(this.whistle).connect(this.turbo).connect(this.master);
+    noise.start();
   },
   update(speed, throttle, active) {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    const r = clamp(Math.abs(speed) / spec.top, 0, 1) * 5;
-    const gear = Math.min(4, Math.floor(r));
-    const rpm = 0.25 + 0.75 * clamp(r - gear, 0, 1);
-    const f = 45 + rpm * 150;
-    this.oscA.frequency.setTargetAtTime(f, t, 0.04);
-    this.oscB.frequency.setTargetAtTime(f / 2, t, 0.04);
-    this.filter.frequency.setTargetAtTime(350 + rpm * 1400 + throttle * 700, t, 0.05);
-    this.master.gain.setTargetAtTime(active && !this.muted ? 0.05 + throttle * 0.05 : 0, t, 0.08);
+    const t = this.ctx.currentTime, e = spec.engine;
+    const r = clamp(Math.abs(speed) / spec.top, 0, 1) * 6;
+    const gear = Math.min(5, Math.floor(r));
+    const rev = 0.2 + 0.8 * clamp(r - gear, 0, 1);          // share of the rev range in this gear
+    const f = Math.min(900, (e.redline * rev / 60) * e.cyl / 2);   // firing frequency
+    this.fire.osc.frequency.setTargetAtTime(f, t, 0.04);
+    this.sub.osc.frequency.setTargetAtTime(f / 2, t, 0.04);
+    this.high.osc.frequency.setTargetAtTime(f * 2, t, 0.04);
+    this.fire.gain.gain.setTargetAtTime(0.5, t, 0.05);
+    this.sub.gain.gain.setTargetAtTime(e.burble * 0.6, t, 0.05);
+    this.high.gain.gain.setTargetAtTime(e.scream * (0.25 + rev * 0.5), t, 0.05);
+    this.filter.frequency.setTargetAtTime(300 + rev * 2300 + throttle * 1300, t, 0.05);
+    this.whistle.frequency.setTargetAtTime(2400 + rev * 3600, t, 0.08);
+    const on = active && !this.muted;
+    this.turbo.gain.setTargetAtTime(on ? e.turbo * throttle * rev * 0.35 : 0, t, 0.12);
+    this.master.gain.setTargetAtTime(on ? 0.045 + throttle * 0.05 : 0, t, 0.08);
   },
   toggleMute() { this.muted = !this.muted; },
 };
@@ -575,6 +607,9 @@ let spec = CARS[0];                           // the car the player races
 const rivalPace = { corner: 1, top: 70 };     // rivals scale with the player's car
 let raceClock = 0, lapStart = 0, lastLap = null, raceBest = null, countdown = 0;
 let raceLaps = 3;
+let online = null;   // while in an online match: { role, peer, snap, myFinish, peerFinish, peerLeft, sendClock, restore }
+let net;
+const activeRivals = () => (online ? [rivals[0]] : rivals);
 let allTimeBest = null;   // best lap on the current track, in this browser
 
 const hud = {
@@ -587,6 +622,10 @@ const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
 function togglePause() {
+  if (online) {   // an online race can't be frozen; this is just the leave menu
+    if (state === 'race' || state === 'countdown') $('pause').hidden = !$('pause').hidden;
+    return;
+  }
   if (state === 'paused') {
     state = resumeState;
     $('pause').hidden = true;
@@ -603,6 +642,7 @@ function togglePause() {
 
 // Abandons the race and goes back to the start screen. No prize, no leaderboard entry.
 function exitToMenu() {
+  if (online) endOnline(true);
   state = 'menu';
   $('pause').hidden = true;
   hud.root.hidden = true;
@@ -618,13 +658,19 @@ function exitToMenu() {
 }
 
 function resetGrid() {
-  rivals.forEach((r, i) => placeOnGrid(r, i + 1, [3, -3, 3][i]));
-  placeOnGrid(player, 4, -3);
+  if (online) {   // side by side on the front row, host on the left
+    placeOnGrid(player, 1, online.role === 'host' ? 3 : -3);
+    placeOnGrid(rivals[0], 1, online.role === 'host' ? -3 : 3);
+  } else {
+    rivals.forEach((r, i) => placeOnGrid(r, i + 1, [3, -3, 3][i]));
+    placeOnGrid(player, 4, -3);
+  }
   camPos.set(0, 0, 0);
 }
 
-function startRace() {
+function startRace(fromNet) {
   if (state === 'loading' || state === 'countdown' || state === 'garage' || pending) return;
+  if ((online || net.active) && fromNet !== true) return;   // online races are started by the match, not the button
   localStorage.setItem('sc_name', nameInput.value.trim());
   document.activeElement?.blur();
   audio.start();
@@ -637,6 +683,8 @@ function startRace() {
   $('pause').hidden = true;
   hud.root.hidden = false;
   touchUI.hidden = !isTouch;
+  $('hud-total').textContent = `/${1 + activeRivals().length}`;
+  $('pause-restart').hidden = !!online;
   hud.last.textContent = fmt(null);
   hud.best.textContent = fmt(allTimeBest);
 }
@@ -644,7 +692,16 @@ function startRace() {
 function finishRace() {
   state = 'finished';
   hud.root.hidden = true;
+  $('pause').hidden = true;
   for (const k in input) input[k] = false;
+  if (online) {
+    online.myFinish = { time: raceClock, best: raceBest };
+    net.sendFinish(online.myFinish);
+    const name = account.current?.username || nameInput.value.trim();
+    if (name && raceBest && !TEST) submitLap(name, raceBest, trackDef.id).then(refreshBoard);
+    settleOnline();
+    return;
+  }
   const place = standing();
   const suffix = ['st', 'nd', 'rd', 'th'][place - 1];
   results.replaceChildren();
@@ -669,6 +726,156 @@ function finishRace() {
 
   const name = account.current?.username || nameInput.value.trim();
   if (name && raceBest && !TEST) submitLap(name, raceBest, trackDef.id).then(refreshBoard);
+}
+
+// ---- online head-to-head
+
+function onlineStatus(text) {
+  $('online-status').textContent = text;
+  $('online-btn').textContent = net.active ? 'CANCEL' : 'ONLINE 1 v 1';
+}
+
+function toggleOnlineSearch() {
+  if (state !== 'menu' && state !== 'finished') return;
+  if (net.active) {
+    if (online) endOnline(true); else net.leave();
+    onlineStatus('');
+    return;
+  }
+  if (pending) return;
+  audio.start();   // needs a click, and the race will start without one
+  if (state === 'finished') { state = 'menu'; results.hidden = true; }
+  const sel = garage.selected();
+  net.search({
+    name: account.current?.username || nameInput.value.trim() || 'Guest',
+    carId: sel.car.id, look: sel.look, track: trackDef.id, laps: raceLaps,
+  });
+  onlineStatus('Searching for an opponent…');
+}
+
+// The match is made: put the opponent's car on the grid, on the host's track.
+function beginOnline({ role, peer, track: trackId, laps }) {
+  online = {
+    role, peer, snap: null, myFinish: null, peerFinish: null, peerLeft: false, sendClock: 0,
+    restore: { track: trackDef.id, laps: raceLaps },
+  };
+  if (trackDef.id !== trackId) loadTrack(TRACKS.find((t) => t.id === trackId) || trackDef);
+  raceLaps = laps;
+  $('hud-laps').textContent = `/${laps}`;
+  const car = CARS.find((c) => c.id === peer.carId) || CARS[0];
+  rivals[0].root.visible = true;
+  rivals[1].root.visible = rivals[2].root.visible = false;
+  dressCar(rivals[0], car, peer.look);
+  resetGrid();
+  onlineStatus(`Racing ${peer.name} in a ${car.name} · ${trackDef.name}, ${laps} ${laps === 1 ? 'lap' : 'laps'}`);
+}
+
+// Leaves the match and puts the single-player rivals, track and lap count back.
+function endOnline(tellPeer) {
+  if (!online) return;
+  const { restore } = online;
+  if (tellPeer) net.leave();
+  online = null;
+  for (const r of rivals) r.root.visible = true;
+  if (trackDef.id !== restore.track) loadTrack(TRACKS.find((t) => t.id === restore.track));
+  selectLaps(restore.laps);
+  resetGrid();
+  $('track-name').textContent = trackDef.name;
+  applySelection();
+  onlineStatus('');
+  menu.hidden = false;
+}
+
+// Called whenever something about the result changes. Each player is timed from their own
+// green light, so the lower race time wins no matter whose connection is slower.
+function settleOnline() {
+  const o = online;
+  if (!o || !o.myFinish) return;
+  results.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'place';
+  const dl = document.createElement('dl');
+  const row = (k, v) => {
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v;
+    dl.append(dt, dd);
+  };
+  row('Your time', fmt(o.myFinish.time * 1000));
+  const decided = o.peerFinish || o.peerLeft;
+  if (!decided) {
+    head.textContent = 'Finished';
+    row(o.peer.name, 'still racing…');
+    sub.textContent = `Waiting for ${o.peer.name} to finish.`;
+    menu.hidden = true;
+    const quit = document.createElement('button');
+    quit.className = 'link';
+    quit.textContent = 'Leave without waiting (no prize)';
+    quit.addEventListener('click', () => { endOnline(true); state = 'menu'; results.hidden = true; sub.textContent = menuText(); });
+    dl.after(quit);
+    results.append(head, dl, quit);
+    results.hidden = false;
+    overlay.hidden = false;
+    touchUI.hidden = true;
+    return;
+  } else {
+    const won = !o.peerFinish || o.myFinish.time <= o.peerFinish.time;
+    head.textContent = won ? 'You win' : 'You lose';
+    row(o.peer.name, o.peerFinish ? fmt(o.peerFinish.time * 1000) : 'left the race');
+    row('Best lap', fmt(o.myFinish.best));
+    const prize = prizeFor(won ? 1 : 2, spec.level, raceLaps);
+    garage.addCredits(prize);
+    row('Winnings', `+${garage.format(prize)}`);
+    sub.textContent = 'Online race complete.';
+    $('start').textContent = 'START RACE';
+    endOnline(true);
+    showWallet();
+  }
+  results.append(head, dl);
+  results.hidden = false;
+  overlay.hidden = false;
+  touchUI.hidden = true;
+}
+
+function peerLeft() {
+  if (!online || online.peerLeft) return;
+  online.peerLeft = true;
+  rivals[0].root.visible = false;
+  if (online.myFinish) { settleOnline(); return; }
+  if (state === 'race' || state === 'countdown') {
+    hud.banner.hidden = false;
+    hud.banner.textContent = 'Opponent left';
+    countdown = Math.max(countdown, 2);   // the banner clears itself after this
+  } else {
+    endOnline(true);
+    onlineStatus('Your opponent left before the start.');
+  }
+}
+
+// The other player's car: glide toward where their last report says they are by now.
+function updateRemote(r, dt) {
+  const snap = online.snap;
+  if (!snap) { syncCar(r, dt, false); return; }
+  const age = Math.min(0.4, (performance.now() - snap.at) / 1000);
+  const tx = snap.x + Math.sin(snap.h) * snap.v * age, tz = snap.z + Math.cos(snap.h) * snap.v * age;
+  const k = Math.min(1, dt * 12);
+  if (Math.hypot(tx - r.x, tz - r.z) > 30) { r.x = tx; r.z = tz; }   // too far to glide: jump
+  r.x += (tx - r.x) * k;
+  r.z += (tz - r.z) * k;
+  let dh = snap.h - r.heading;
+  dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+  r.heading += dh * k;
+  r.speed = snap.v;
+  r.steer = snap.s;
+  r.prog = snap.p;
+  r.laps = snap.l;
+  syncCar(r, dt, snap.b);
+}
+
+function sendOnlineState(dt) {
+  if ((online.sendClock += dt) < 0.1 || online.peerLeft) return;
+  online.sendClock = 0;
+  const p = player, round = (n) => Math.round(n * 100) / 100;
+  net.sendState({ x: round(p.x), z: round(p.z), h: round(p.heading), v: round(p.speed), s: round(p.steer), p: round(p.prog), l: p.laps, b: input.down && p.speed > 1 });
 }
 
 // ---- accounts
@@ -734,7 +941,7 @@ function applySelection() {
 }
 
 function openGarage() {
-  if (state !== 'menu' && state !== 'finished') return;
+  if ((state !== 'menu' && state !== 'finished') || online || net.active) return;
   state = 'garage';
   overlay.hidden = true;
   resetGrid();
@@ -753,6 +960,7 @@ function closeGarage() {
 
 // Switches circuit. Only reachable from the menu, so no race is in progress.
 function selectTrack(index) {
+  if (online || net?.active) return;
   const def = TRACKS[(index + TRACKS.length) % TRACKS.length];
   loadTrack(def);
   localStorage.setItem('sc_track', def.id);
@@ -770,6 +978,7 @@ function selectTrack(index) {
 }
 
 function selectLaps(n) {
+  if (online || net?.active) return;
   raceLaps = n;
   localStorage.setItem('sc_laps', String(n));
   $('hud-laps').textContent = `/${n}`;
@@ -778,7 +987,7 @@ function selectLaps(n) {
 }
 
 function standing() {
-  return 1 + rivals.filter((r) => r.prog > player.prog).length;
+  return 1 + activeRivals().filter((r) => r.prog > player.prog).length;
 }
 
 async function refreshBoard() {
@@ -865,7 +1074,8 @@ function updatePlayer(dt, live) {
   p.speed = vF;
 
   // Rivals are solid.
-  for (const r of rivals) {
+  for (const r of activeRivals()) {
+    if (!r.root.visible) continue;
     const dx = p.x - r.x, dz = p.z - r.z;
     const d = Math.hypot(dx, dz);
     if (d < CAR_RADIUS && d > 1e-3) {
@@ -1027,7 +1237,8 @@ function drawMapBase() {
 function drawMinimap() {
   mctx.clearRect(0, 0, mini.width, mini.height);
   mctx.drawImage(mapBase, 0, 0);
-  cars.forEach((car) => {
+  [player, ...activeRivals()].forEach((car) => {
+    if (!car.root.visible) return;
     const [x, y] = mapXf(car.x, car.z);
     mctx.beginPath();
     mctx.arc(x, y, car === player ? 6 : 4.5, 0, Math.PI * 2);
@@ -1068,7 +1279,12 @@ function frame() {
     const live = state === 'race';
     // Two substeps keep wall and car contacts stable at top speed.
     for (let i = 0; i < 2; i++) throttle = updatePlayer(dt / 2, live && state === 'race');
-    for (const r of rivals) updateRival(r, dt, live || state === 'finished');
+    if (online) {
+      updateRemote(rivals[0], dt);
+      sendOnlineState(dt);
+    } else {
+      for (const r of rivals) updateRival(r, dt, live || state === 'finished');
+    }
     updateCamera(dt);
     audio.update(player.speed, throttle, state === 'race' || state === 'countdown');
 
@@ -1138,12 +1354,23 @@ async function boot() {
   $('pause-resume').addEventListener('click', togglePause);
   $('pause-restart').addEventListener('click', startRace);
   $('pause-exit').addEventListener('click', exitToMenu);
+  net = createOnline({
+    onStatus: onlineStatus,
+    onMatched: beginOnline,
+    // the opponent's car may still be loading when the start is called
+    onStart: function go() { if (pending) setTimeout(go, 100); else startRace(true); },
+    onPeerState: (snap) => { if (online) online.snap = { ...snap, at: performance.now() }; },
+    onPeerFinish: (result) => { if (online) { online.peerFinish = result; settleOnline(); } },
+    onPeerLeft: peerLeft,
+  });
+  $('online-btn').addEventListener('click', toggleOnlineSearch);
   $('g-back').addEventListener('click', closeGarage);
   refreshBoard();
-  if (TEST) startRace();
+  if (TEST && params.has('online')) toggleOnlineSearch();
+  else if (TEST) startRace();
 }
 
-window.__game = { get state() { return state; }, get garage() { return garage; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
+window.__game = { get state() { return state; }, get online() { return online; }, get garage() { return garage; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
 
 requestAnimationFrame(frame);
 boot();

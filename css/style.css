@@ -291,10 +291,12 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
 
 /* ---------- Garage ---------- */
 
-.garage-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.garage-row, .online-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.online-row { margin-bottom: 10px; }
+#online-status { font-size: 13px; color: #ffb37a; }
 #wallet, #g-credits { font-weight: 700; font-variant-numeric: tabular-nums; color: #ffb37a; }
 
-#open-garage, #g-back, #g-prev, #g-next {
+#open-garage, #online-btn, #g-back, #g-prev, #g-next {
   padding: 10px 16px;
   font: inherit;
   font-size: 13px;
@@ -306,7 +308,7 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
   border-radius: 10px;
   cursor: pointer;
 }
-#open-garage:hover, #g-back:hover, #g-prev:hover, #g-next:hover { background: rgba(255, 255, 255, .2); }
+#open-garage:hover, #online-btn:hover, #g-back:hover, #g-prev:hover, #g-next:hover { background: rgba(255, 255, 255, .2); }
 
 .g-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .g-car { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
