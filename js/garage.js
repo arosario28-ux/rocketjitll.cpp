@@ -96,6 +96,28 @@ const OPTIONS = [
 const colorsOf = (key) => OPTIONS.find((o) => o.key === key).colors;
 const DEFAULT_LOOK = { paint: 0, finish: 1, rims: 0, caliper: 0, interior: 0, tint: 1, glow: 0 };
 
+// Upgrades are bought per car, one stage at a time. Each stage adds `per` (a fraction) to the
+// stats listed, on top of the car's own figures.
+export const UPGRADES = [
+  { key: 'engine', label: 'Engine', boosts: { accel: 0.04, top: 0.015 } },
+  { key: 'brakes', label: 'Brakes', boosts: { brake: 0.06 } },
+  { key: 'suspension', label: 'Suspension', boosts: { grip: 0.025 } },
+  { key: 'tyres', label: 'Tyres', boosts: { grip: 0.03 } },
+];
+const STAGES = ['Stock', 'Street', 'Sport', 'Track'];
+const STAGE_COST = [0, 600, 1500, 3200];
+const upgradeCost = (car, stage) => Math.round(STAGE_COST[stage] * (1 + car.level) / 50) * 50;
+
+// A car's figures with its upgrades applied.
+function tuned(car, levels = {}) {
+  const out = { top: car.top, accel: car.accel, grip: car.grip, brake: car.brake };
+  for (const up of UPGRADES) {
+    const stage = levels[up.key] || 0;
+    for (const stat in up.boosts) out[stat] += car[stat] * up.boosts[stat] * stage;
+  }
+  return out;
+}
+
 const PRIZES = [1000, 400, 200, 100];
 // Prizes are quoted for a three-lap race and scale with distance, so short races can't be farmed.
 export const prizeFor = (place, level, laps) => Math.round(PRIZES[place - 1] * (1 + level) * laps / 3);
@@ -125,12 +147,20 @@ const GUEST_KEY = 'sc_save';
 
 // Builds a valid save out of whatever was stored, dropping anything that doesn't belong.
 function cleanSave(raw) {
-  const save = { credits: 0, owned: [CARS[0].id], selected: CARS[0].id, looks: {} };
+  const save = { credits: 0, owned: [CARS[0].id], selected: CARS[0].id, looks: {}, upgrades: {} };
   if (raw && typeof raw === 'object') {
     if (Number.isFinite(raw.credits)) save.credits = Math.max(0, raw.credits);
     if (Array.isArray(raw.owned)) for (const id of raw.owned) if (CARS.some((c) => c.id === id) && !save.owned.includes(id)) save.owned.push(id);
     if (CARS.some((c) => c.id === raw.selected)) save.selected = raw.selected;
     if (raw.looks && typeof raw.looks === 'object') save.looks = raw.looks;
+    if (raw.upgrades && typeof raw.upgrades === 'object') {
+      for (const car of CARS) {
+        const got = raw.upgrades[car.id];
+        if (!got || typeof got !== 'object') continue;
+        save.upgrades[car.id] = {};
+        for (const up of UPGRADES) save.upgrades[car.id][up.key] = Math.min(STAGES.length - 1, Math.max(0, Math.floor(got[up.key]) || 0));
+      }
+    }
   }
   return save;
 }
@@ -158,7 +188,7 @@ export function createGarage({ onPreview, onSave }) {
   const $ = (id) => document.getElementById(id);
   const ui = {
     root: $('garage'), credits: $('g-credits'), name: $('g-name'), tag: $('g-tag'),
-    stats: $('g-stats'), action: $('g-action'), custom: $('g-custom'),
+    stats: $('g-stats'), action: $('g-action'), custom: $('g-custom'), upgrades: $('g-upgrades'),
   };
   let view = 0;   // index into cars()
 
@@ -193,9 +223,14 @@ export function createGarage({ onPreview, onSave }) {
     { label: 'Braking', unit: 'g', value: (c) => c.brake / 9.81, digits: 2 },
   ];
 
+  const statsOf = (car) => ({ ...car, ...tuned(car, save.upgrades[car.id]) });
+  // the longest bar is a fully upgraded top car
+  const ceiling = () => { const top = cars().at(-1); return { ...top, ...tuned(top, Object.fromEntries(UPGRADES.map((u) => [u.key, STAGES.length - 1]))) }; };
+
   function renderStats(car) {
-    const current = selectedCar();
-    const best = cars().at(-1);
+    car = statsOf(car);
+    const current = statsOf(selectedCar());
+    const best = ceiling();
     ui.stats.replaceChildren();
     for (const stat of STATS) {
       const v = stat.value(car), base = stat.value(current);
@@ -216,9 +251,43 @@ export function createGarage({ onPreview, onSave }) {
     }
   }
 
+  function renderUpgrades(car) {
+    ui.upgrades.replaceChildren();
+    if (!owns(car)) return;
+    const levels = save.upgrades[car.id] || {};
+    ui.upgrades.append(make('h3', 'g-heading', 'Upgrades'));
+    for (const up of UPGRADES) {
+      const stage = levels[up.key] || 0;
+      const row = make('div', 'up-row');
+      const info = make('div', 'up-info');
+      info.append(make('span', 'opt-label', up.label), make('span', 'up-stage', `${STAGES[stage]} ${up.label.toLowerCase()}`));
+      const pips = make('div', 'pips');
+      for (let i = 1; i < STAGES.length; i++) pips.append(make('i', i <= stage ? 'on' : ''));
+      info.append(pips);
+      const btn = make('button', 'up-buy');
+      btn.type = 'button';
+      if (stage >= STAGES.length - 1) { btn.textContent = 'MAXED'; btn.disabled = true; }
+      else {
+        const cost = upgradeCost(car, stage + 1);
+        btn.textContent = `${STAGES[stage + 1].toUpperCase()} · ${cr(cost)}`;
+        btn.disabled = save.credits < cost;
+        btn.addEventListener('click', () => {
+          if (save.credits < cost) return;
+          save.credits -= cost;
+          save.upgrades[car.id] = { ...levels, [up.key]: stage + 1 };
+          persist();
+          render();
+        });
+      }
+      row.append(info, btn);
+      ui.upgrades.append(row);
+    }
+  }
+
   function renderCustom(car) {
     ui.custom.replaceChildren();
     if (!owns(car)) return;
+    ui.custom.append(make('h3', 'g-heading', 'Style'));
     const look = lookOf(car);
     for (const opt of OPTIONS) {
       if (opt.part && !car.mats[opt.part]) continue;
@@ -263,6 +332,7 @@ export function createGarage({ onPreview, onSave }) {
     else if (save.credits >= car.price) btn.textContent = `BUY · ${cr(car.price)}`;
     else { btn.textContent = `NEED ${cr(car.price - save.credits)} MORE`; btn.disabled = true; }
 
+    renderUpgrades(car);
     renderCustom(car);
     ui.root.classList.add('busy');
     Promise.resolve(onPreview(car, resolveLook(lookOf(car)))).finally(() => {
@@ -287,7 +357,8 @@ export function createGarage({ onPreview, onSave }) {
     get isOpen() { return !ui.root.hidden; },
     selected() {
       const car = selectedCar();
-      return { car, look: resolveLook(lookOf(car)) };
+      // `spec` is what the physics uses: the car's figures with its upgrades applied
+      return { car, spec: statsOf(car), look: resolveLook(lookOf(car)) };
     },
     addCredits(n) { save.credits += n; persist(); },
     step(d) { const n = cars().length; view = (view + d + n) % n; render(); },

@@ -56,20 +56,21 @@
   </div>
 
   <div id="overlay">
-    <div class="panel">
-      <h1>SUNSET <em>CIRCUIT</em></h1>
-      <p id="overlay-sub" class="sub">Loading…</p>
+    <header class="top">
+      <div class="brand">
+        <h1>SUNSET <em>CIRCUIT</em></h1>
+        <p id="overlay-sub" class="sub">Loading…</p>
+      </div>
 
-      <div id="results" hidden></div>
-
-      <div id="menu" hidden>
+      <div id="account">
         <div id="acct-guest">
           <label class="name-field">
-            Driver name
+            <span>Driver</span>
             <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Your name">
           </label>
-          <button id="acct-open" class="link">Log in or sign up to keep your cars</button>
-          <div id="acct-form" hidden>
+          <button id="acct-open" class="chip-btn">LOG IN / SIGN UP</button>
+          <div id="acct-form" class="popover" hidden>
+            <p class="popover-note">An account keeps your cars and credits on any device.</p>
             <input id="acct-user" maxlength="16" autocomplete="username" spellcheck="false" placeholder="Username">
             <input id="acct-pass" type="password" maxlength="64" autocomplete="current-password" placeholder="Passcode">
             <div class="acct-buttons">
@@ -79,34 +80,27 @@
           </div>
         </div>
         <div id="acct-user-row" hidden>
-          <span>Signed in as <b id="acct-name"></b> <span id="acct-dev" class="badge" hidden>DEV</span></span>
+          <span class="who"><b id="acct-name"></b> <span id="acct-dev" class="badge" hidden>DEV</span></span>
           <button id="acct-devbtn" class="link">Dev code</button>
           <button id="acct-logout" class="link">Log out</button>
-          <div id="acct-devform" hidden>
+          <div id="acct-devform" class="popover" hidden>
             <input id="acct-code" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Developer code">
             <button id="acct-redeem">UNLOCK</button>
           </div>
         </div>
         <p id="acct-msg" role="status"></p>
-        <div class="pick">
-          <span class="pick-label">Track</span>
-          <button id="track-prev" aria-label="Previous track">◀</button>
-          <span id="track-name"></span>
-          <button id="track-next" aria-label="Next track">▶</button>
-        </div>
-        <div class="pick">
-          <span class="pick-label">Laps</span>
-          <div id="lap-choices" class="choices"></div>
-        </div>
-        <button id="start">START RACE</button>
-        <div class="online-row">
-          <button id="online-btn">ONLINE 1 v 1</button>
-          <span id="online-status" role="status"></span>
-        </div>
-        <div class="garage-row">
-          <button id="open-garage">GARAGE</button>
-          <span id="wallet"></span>
-        </div>
+      </div>
+    </header>
+
+    <div id="results" hidden></div>
+
+    <aside class="side">
+      <div class="board card">
+        <h2 id="board-title">Fastest laps</h2>
+        <ol id="board-list"><li class="empty">Loading…</li></ol>
+      </div>
+      <details class="help card">
+        <summary>Controls</summary>
         <ul class="controls">
           <li><kbd>W</kbd>/<kbd>↑</kbd> gas</li>
           <li><kbd>S</kbd>/<kbd>↓</kbd> brake · reverse</li>
@@ -116,15 +110,38 @@
           <li><kbd>R</kbd> restart</li>
           <li><kbd>Esc</kbd>/<kbd>P</kbd> pause</li>
           <li><kbd>M</kbd> mute</li>
-          <li>Win races to earn credits for faster cars.</li>
         </ul>
-      </div>
+      </details>
+    </aside>
 
-      <div class="board">
-        <h2 id="board-title">Fastest laps</h2>
-        <ol id="board-list"><li class="empty">Loading…</li></ol>
+    <footer id="menu" class="dock" hidden>
+      <div class="dock-card">
+        <span class="dock-label">Track</span>
+        <div class="pick">
+          <button id="track-prev" aria-label="Previous track">◀</button>
+          <span id="track-name"></span>
+          <button id="track-next" aria-label="Next track">▶</button>
+        </div>
       </div>
-    </div>
+      <div class="dock-card">
+        <span class="dock-label">Laps</span>
+        <div id="lap-choices" class="choices"></div>
+      </div>
+      <div class="dock-card">
+        <span class="dock-label">Your car</span>
+        <div class="garage-row">
+          <span id="wallet"></span>
+          <button id="open-garage">GARAGE</button>
+        </div>
+      </div>
+      <div class="dock-go">
+        <button id="start">START RACE</button>
+        <div class="online-row">
+          <button id="online-btn">ONLINE 1 v 1</button>
+          <span id="online-status" role="status"></span>
+        </div>
+      </div>
+    </footer>
   </div>
 
   <div id="garage" hidden>
@@ -143,6 +160,7 @@
       </div>
       <div id="g-stats"></div>
       <button id="g-action"></button>
+      <div id="g-upgrades"></div>
       <div id="g-custom"></div>
     </div>
   </div>

@@ -34,6 +34,19 @@ Pick the track and the race length (1, 3, 5 or 10 laps) on the start screen. Pri
 
 Each scene has its own sky, lighting, fog, weather (rain, snow or embers) and scenery, all generated in code. Neon District is an original build inspired by the look of [Threejs-Punk Drive](https://threejspunkdrive.vercel.app/); it does not use that game's code or assets.
 
+## Upgrades
+
+Every owned car can be upgraded in the garage, one stage at a time: Stock → Street → Sport → Track. Upgrades cost credits (more for faster cars) and are kept per car.
+
+| Upgrade | Improves | Per stage |
+| --- | --- | --- |
+| Engine | acceleration, top speed | +4%, +1.5% |
+| Brakes | braking | +6% |
+| Suspension | handling | +2.5% |
+| Tyres | handling | +3% |
+
+Rivals are scaled from your car's upgraded figures, so they keep pace.
+
 ## Online head-to-head
 
 "Online 1 v 1" on the start screen pairs you with another player who is searching. Each player races the car they have selected in their own garage, on the track and lap count chosen by whichever of the two becomes host. Each player is timed from their own green light, so the lower race time wins regardless of connection speed. Winning pays the first-place prize, losing the second-place prize.
@@ -83,7 +96,7 @@ Limits worth knowing: there is no passcode reset, so a forgotten passcode means 
 - `js/garage.js` — the car list and stats, saved progress, and the garage screen.
 - `js/account.js` — sign-up, login and progress sync against Supabase.
 - `js/online.js` — matchmaking and position sync for online races, over Supabase Realtime.
-- `js/leaderboard.js` — reads and writes lap times, per track, in a Supabase table (`lap_times`) using the project's publishable key. Row level security allows reading and inserting only.
+- `js/leaderboard.js` — reads the `best_laps` view (each driver's fastest lap per track) and writes lap times to the `lap_times` table in Supabase, using the project's publishable key. Row level security allows reading and inserting only.
 - `tools/build-car.mjs` — the script that prepared the files in `assets/cars/`. It rescales each source model, splits the wheels off so they can spin and steer, merges geometry per material, simplifies it and compresses it. It needs Node with `@gltf-transform/cli` installed; the game itself does not.
 
 ## Run locally

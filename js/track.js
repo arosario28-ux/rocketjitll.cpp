@@ -64,6 +64,7 @@ export const TRACKS = [
 //   lamps HDR colours cycled along the track             pools brightness of the light pooled under them
 const THEMES = {
   forest: {
+    verge: ['#52722f', '#476428'], gravel: '#b9a57e',
     sky: { elev: 4, az: 112, turbidity: 10, rayleigh: 3, mie: 0.005, mieG: 0.75 },
     sun: [0xffc38f, 4.2, 13], hemi: [0x9db4ff, 0x4a3b2c, 0.7], fog: [0xb98f78, 0.0011], exposure: 0.5, bloom: 0.35,
     ground: { base: '#46612c', hue: [82, 26], sat: [32, 22], lum: [18, 20] },
@@ -71,6 +72,7 @@ const THEMES = {
     clouds: 0xffc9a8,
   },
   speedway: {
+    verge: ['#5f9f37', '#528e2f'], gravel: '#c9b68c',
     sky: { elev: 38, az: 140, turbidity: 3, rayleigh: 1.1, mie: 0.004, mieG: 0.8 },
     sun: [0xfff4e0, 3.4, 42], hemi: [0xbfd8ff, 0x5a6b3a, 1.0], fog: [0xbcd3e6, 0.0006], exposure: 0.42, bloom: 0.15,
     ground: { base: '#4f8a2e', hue: [88, 22], sat: [45, 20], lum: [24, 18] },
@@ -78,6 +80,7 @@ const THEMES = {
     clouds: 0xffffff,
   },
   alpine: {
+    verge: ['#f6f9fc', '#e4ebf2'], gravel: '#cdd5de',
     sky: { elev: 16, az: 70, turbidity: 2.5, rayleigh: 1.4, mie: 0.003, mieG: 0.8 },
     sun: [0xfff0e2, 3.0, 22], hemi: [0xcfe2ff, 0x8a93a3, 1.1], fog: [0xd7e2ee, 0.0013], exposure: 0.42, bloom: 0.2,
     ground: { base: '#e9eef3', hue: [205, 15], sat: [10, 15], lum: [84, 12] },
@@ -85,6 +88,7 @@ const THEMES = {
     clouds: 0xffffff, weather: 'snow',
   },
   desert: {
+    verge: ['#d2a970', '#c59a62'], gravel: '#dcbc8c',
     sky: { elev: 20, az: 200, turbidity: 6, rayleigh: 1.6, mie: 0.006, mieG: 0.85 },
     sun: [0xffd9a8, 4.0, 26], hemi: [0xcfe0ff, 0x9a6a3c, 0.9], fog: [0xe2c39c, 0.0007], exposure: 0.42, bloom: 0.2,
     ground: { base: '#c79b63', hue: [30, 12], sat: [38, 18], lum: [46, 16] },
@@ -92,6 +96,7 @@ const THEMES = {
     clouds: 0xffe6cc,
   },
   city: {
+    verge: ['#2c2c36', '#25252e'], gravel: null,
     sky: { night: true, top: 0x04030c, horizon: 0x35164f, stars: 0, glow: [0xff2bd6, 0x2ad4ff, 0x7a3cff] },
     sun: [0x8fa0ff, 0.5, 55], hemi: [0x6a4cff, 0x1a1020, 0.4], fog: [0x1a0c2c, 0.0038], exposure: 0.9, bloom: 0.5,
     ground: { base: '#17171d', hue: [250, 20], sat: [6, 10], lum: [7, 9] },
@@ -99,6 +104,7 @@ const THEMES = {
     lamps: [[1.2, 7, 9], [9, 1, 7]], pools: 0.6, clouds: null, weather: 'rain', neonRails: [[0.25, 2.4, 3.4], [3.4, 0.3, 2.4]],
   },
   volcano: {
+    verge: ['#262019', '#1e1916'], gravel: '#3d312c',
     sky: { night: true, top: 0x0b0607, horizon: 0x7a1d08, stars: 0, glow: [0xff5a14, 0xff2a00, 0x7a1d08] },
     sun: [0xffa070, 1.3, 30], hemi: [0xff8a5a, 0x2a1510, 0.8], fog: [0x2a0f0a, 0.0017], exposure: 0.85, bloom: 0.45,
     ground: { base: '#1b1716', hue: [15, 12], sat: [8, 10], lum: [7, 9], cracks: true },
@@ -177,13 +183,14 @@ export function buildTrack(renderer, def) {
   const hdr = ([r, g, b]) => new THREE.Color(r, g, b);
 
   // A strip that follows the track between two lateral offsets (a = left edge, b = right edge).
-  function ribbon(a, b, ya, yb, vScale) {
+  // `from`..`to` are sample indices and may run past N; the default is the whole lap.
+  function ribbon(a, b, ya, yb, vScale, from = 0, to = N) {
     const pos = [], uv = [], idx = [];
-    for (let i = 0; i <= N; i++) {
-      const k = i % N, p = pts[k], n = nrm[k];
+    for (let i = from; i <= to; i++) {
+      const k = ((i % N) + N) % N, p = pts[k], n = nrm[k];
       pos.push(p.x + n.x * a, ya, p.z + n.z * a, p.x + n.x * b, yb, p.z + n.z * b);
       uv.push(0, (i * DS) / vScale, 1, (i * DS) / vScale);
-      if (i < N) { const j = i * 2; idx.push(j, j + 1, j + 2, j + 1, j + 3, j + 2); }
+      if (i < to) { const j = (i - from) * 2; idx.push(j, j + 1, j + 2, j + 1, j + 3, j + 2); }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -316,6 +323,87 @@ export function buildTrack(renderer, def) {
     group.add(kerb);
   }
 
+  // ------------------------------------------------------------ verges, gravel traps, tyre walls
+  // mown stripes (or paving, or packed snow) between the kerbs and the rails
+  const vergeTex = canvasTexture(128, (ctx, s) => {
+    ctx.fillStyle = theme.verge[0];
+    ctx.fillRect(0, 0, s, s);
+    ctx.fillStyle = theme.verge[1];
+    ctx.fillRect(0, 0, s, s / 2);
+    speckle(ctx, s, 900, rand, (r) => `rgba(${r > 0.5 ? '255,255,255' : '0,0,0'},${0.02 + r * 0.05})`);
+  }, renderer);
+  const vergeMat = new THREE.MeshStandardMaterial({ map: vergeTex, roughness: 1 });
+  for (const [a, b] of [[WALL - 0.2, ROAD_HALF + 1.2], [-ROAD_HALF - 1.2, -WALL + 0.2]]) {
+    const verge = new THREE.Mesh(ribbon(a, b, 0.008, 0.008, 14), vergeMat);
+    verge.receiveShadow = true;
+    group.add(verge);
+  }
+
+  // corners get a gravel trap on the outside, backed by a tyre wall
+  const corners = [];
+  {
+    const tight = (i) => route.speedProfile[((i % N) + N) % N] < 46;
+    let start = 0;
+    while (start < N && tight(start)) start++;
+    for (let i = start; i < start + N; i++) {
+      if (!tight(i)) continue;
+      let end = i;
+      while (end < start + N && tight(end + 1)) end++;
+      const mid = ((Math.round((i + end) / 2) % N) + N) % N, ahead = (mid + 5) % N;
+      const left = tan[ahead].x * nrm[mid].x + tan[ahead].z * nrm[mid].z > 0;   // which way the track bends
+      corners.push({ from: i - 7, to: end + 7, outer: left ? -1 : 1 });
+      i = end;
+    }
+  }
+  if (theme.gravel) {
+    const gravelTex = canvasTexture(256, (ctx, s) => {
+      ctx.fillStyle = theme.gravel;
+      ctx.fillRect(0, 0, s, s);
+      speckle(ctx, s, 5000, rand, (r) => `rgba(${r > 0.5 ? '255,255,255' : '0,0,0'},${0.05 + r * 0.12})`);
+    }, renderer);
+    const gravelMat = new THREE.MeshStandardMaterial({ map: gravelTex, roughness: 1 });
+    const stacks = [];
+    for (const c of corners) {
+      const [a, b] = c.outer > 0 ? [WALL - 0.3, ROAD_HALF + 1.3] : [-ROAD_HALF - 1.3, -WALL + 0.3];
+      const trap = new THREE.Mesh(ribbon(a, b, 0.014, 0.014, 6, c.from, c.to), gravelMat);
+      trap.receiveShadow = true;
+      group.add(trap);
+      for (let i = c.from * 2; i <= c.to * 2; i++) stacks.push([((Math.floor(i / 2) % N) + N) % N, c.outer, i]);   // two stacks per sample
+    }
+    const red = new THREE.Color(0xc0261f), white = new THREE.Color(0xe9e9e4);
+    instances(new THREE.CylinderGeometry(0.52, 0.52, 1, 12).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ roughness: 0.9 }), stacks, (j, [k, side, i]) => {
+      const along = i & 1 ? DS / 2 : 0;
+      v.set(pts[k].x + nrm[k].x * side * (WALL - 0.75) + tan[k].x * along, 0, pts[k].z + nrm[k].z * side * (WALL - 0.75) + tan[k].z * along);
+      return ((i >> 1) & 1 ? red : white).clone();
+    });
+  }
+
+  // ------------------------------------------------------------ sponsor boards
+  if (!theme.neonRails) {
+    const boardTex = canvasTexture(512, (ctx, s) => {
+      const panels = [['#c8102e', '#fff'], ['#f2f2f2', '#16181d'], ['#1463ff', '#fff'], ['#f2c200', '#16181d']];
+      panels.forEach(([bg, fg], i) => {
+        const y = (i * s) / 4, h = s / 4;
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, y, s, h);
+        ctx.fillStyle = fg;
+        // shapes only, so the board reads the same from either side
+        if (i % 2) for (let k = 0; k < 3; k++) ctx.fillRect(s * 0.3, y + h * (0.2 + k * 0.22), s * 0.4, h * 0.1);
+        else { ctx.beginPath(); ctx.arc(s / 2, y + h / 2, h * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(s / 2, y + h / 2, h * 0.14, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = 'rgba(0,0,0,.35)';
+        ctx.fillRect(0, y, s, 3);
+      });
+    }, renderer);
+    const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.55, side: THREE.DoubleSide });
+    const stretches = [[-34, 46, 1], [-34, 46, -1]];
+    for (const f of [0.22, 0.47, 0.72]) stretches.push([Math.round(N * f), Math.round(N * f) + 36, f === 0.47 ? -1 : 1]);
+    for (const [from, to, side] of stretches) {
+      const board = new THREE.Mesh(ribbon(side * (WALL + 0.3), side * (WALL + 0.3), 1.55, 0.2, 24, from, to), boardMat);
+      board.castShadow = true;
+      group.add(board);
+    }
+  }
+
   // ------------------------------------------------------------ guard rails
   const railMat = new THREE.MeshStandardMaterial({ color: 0xb9bec6, metalness: 0.9, roughness: 0.35, side: THREE.DoubleSide });
   for (const side of [1, -1]) {
@@ -416,6 +504,16 @@ export function buildTrack(renderer, def) {
     gantry.add(banner);
   }
   gantry.add(beam);
+  // start lights, facing the grid
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.8, 0.3), steel);
+  housing.position.set(0, 6.35, -0.5);
+  gantry.add(housing);
+  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.12, 0.06) });
+  for (let i = 0; i < 5; i++) {
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), lamp);
+    bulb.position.set((i - 2) * 1.0, 6.35, -0.68);
+    gantry.add(bulb);
+  }
   gantry.position.set(pts[0].x, 0, pts[0].z);
   gantry.rotation.y = startYaw;
   group.add(gantry);
@@ -442,6 +540,30 @@ export function buildTrack(renderer, def) {
     // local -z (the low front row) faces the track
     stand.rotation.y = Math.atan2(nrm[k].x * side, nrm[k].z * side);
     group.add(stand);
+  }
+
+  // A pit building with a row of garages, on the right of the start straight.
+  function pits() {
+    const k = ((-16 % N) + N) % N, off = -(WALL + 12);
+    const building = new THREE.Group();
+    const wall = new THREE.MeshStandardMaterial({ color: 0xd9dce1, roughness: 0.8 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1b1e24, roughness: 0.5, metalness: 0.3 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(9, 5.4, 66), wall);
+    body.position.y = 2.7;
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(11.5, 0.35, 68), steel);
+    roof.position.set(0.8, 5.6, 0);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.3, 62), new THREE.MeshStandardMaterial({ color: 0x24303c, roughness: 0.15, metalness: 0.8 }));
+    glass.position.set(4.55, 4.3, 0);
+    building.add(body, roof, glass);
+    for (let i = 0; i < 10; i++) {
+      const door = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3.1, 4.8), dark);
+      door.position.set(4.55, 1.55, (i - 4.5) * 6.2);   // local +x faces the track
+      building.add(door);
+    }
+    for (const m of building.children) m.castShadow = true;
+    building.position.set(pts[k].x + nrm[k].x * off, 0, pts[k].z + nrm[k].z * off);
+    building.rotation.y = Math.atan2(tan[k].x, tan[k].z);
+    group.add(building);
   }
 
   // ------------------------------------------------------------ shared scenery pieces
@@ -498,6 +620,21 @@ export function buildTrack(renderer, def) {
     instances(crownGeo, new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), spots, (i, s) => { place(i, s); return crownColor(); });
   }
 
+  function broadleaf(count, hue) {
+    const spots = scatter(count, WALL + 8, 200);
+    const sizes = spots.map(() => 0.8 + rand() * 0.8);
+    instances(new THREE.CylinderGeometry(0.25, 0.4, 3.4, 6).translate(0, 1.7, 0), new THREE.MeshStandardMaterial({ color: 0x4f3a28, roughness: 1 }), spots, (i, [x, z]) => {
+      v.set(x, 0, z);
+      sc.setScalar(sizes[i]);
+    });
+    instances(new THREE.IcosahedronGeometry(2.6, 1).translate(0, 5, 0), new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), spots, (i, [x, z]) => {
+      v.set(x, 0, z);
+      q.setFromAxisAngle(up, rand() * 6);
+      sc.set(sizes[i] * (0.9 + rand() * 0.4), sizes[i], sizes[i] * (0.9 + rand() * 0.4));
+      return col.setHSL(hue + rand() * 0.06, 0.45 + rand() * 0.15, 0.1 + rand() * 0.08).clone();
+    });
+  }
+
   function rocks(count, color, maxSize = 2.2, maxD = 160) {
     const spots = scatter(count, WALL + 3, maxD);
     const base = new THREE.Color(color);
@@ -525,16 +662,20 @@ export function buildTrack(renderer, def) {
   const SCENES = {
     forest() {
       pines(Math.min(1600, Math.round(length * 0.55)), () => col.setHSL(0.26 + rand() * 0.08, 0.45 + rand() * 0.2, 0.07 + rand() * 0.07).clone());
+      broadleaf(Math.round(length * 0.1), 0.2);
       bushes(260, 0.24);
       rocks(90, 0x6d6a66);
       grandstand(8, 1);
+      pits();
       hills();
       clouds();
     },
 
     speedway() {
       pines(Math.round(length * 0.16), () => col.setHSL(0.28 + rand() * 0.06, 0.5, 0.12 + rand() * 0.08).clone());
+      broadleaf(Math.round(length * 0.1), 0.25);
       bushes(120, 0.27);
+      pits();
       for (let k = 4; k < N * 0.2; k += 26) { grandstand(k, 1); grandstand(k, -1); }
       for (let k = Math.round(N * 0.52); k < N * 0.72; k += 26) grandstand(k, -1);
       hills();
@@ -547,6 +688,7 @@ export function buildTrack(renderer, def) {
         : col.setHSL(0.36, 0.3, 0.14 + rand() * 0.06).clone()));
       rocks(240, 0x7c8590, 3.2);
       grandstand(8, 1);
+      pits();
       hills(54);
       clouds(30);
     },
@@ -578,6 +720,7 @@ export function buildTrack(renderer, def) {
         sc.setScalar(s);
       });
       grandstand(8, 1);
+      pits();
       hills(40);
       clouds(14);
     },
@@ -728,6 +871,7 @@ export function buildTrack(renderer, def) {
         return new THREE.Color(1.6, 0.45 + rand() * 0.25, 0.08);
       }, false);
       rocks(520, 0x2a211f, 3.6, 240);
+      pits();
       // jagged spires
       instances(new THREE.ConeGeometry(1, 1, 5).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x1f1817, roughness: 1, flatShading: true }), scatter(110, WALL + 10, 330), (i, [x, z]) => {
         v.set(x, -0.5, z);

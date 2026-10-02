@@ -925,14 +925,14 @@ function showWallet() {
 // Puts the selected car, its paint job and matching rivals on track.
 function applySelection() {
   const sel = garage.selected();
-  spec = sel.car;
+  spec = sel.spec;
   rivalPace.corner = Math.sqrt(spec.grip / CARS[0].grip);
   rivalPace.top = terminalSpeed(spec) * 0.97;
   showWallet();
   // rivals drive what the player drives, unless it is an exclusive car
-  const rivalCar = spec.devOnly || spec.special ? CARS.filter((c) => !c.devOnly && !c.special).at(-1) : spec;
+  const rivalCar = spec.devOnly || spec.special ? CARS.filter((c) => !c.devOnly && !c.special).at(-1) : sel.car;
   return Promise.all([
-    dressCar(player, spec, sel.look),
+    dressCar(player, sel.car, sel.look),
     ...rivals.map((r, i) => {
       r.skill = r.baseSkill + 0.05 * spec.level;
       return dressCar(r, rivalCar, rivalLook(RIVAL_COLORS[i]));
@@ -1171,10 +1171,12 @@ function updateCamera(dt) {
   if (state === 'menu' || state === 'finished' || state === 'garage') {
     menuAngle += dt * 0.18;
     const sx = Math.sin(menuAngle), cz = Math.cos(menuAngle);
-    // Aim to the car's side so it sits clear of the menu panel on wide screens.
-    const shift = innerWidth > 720 ? 1.7 : 0;
+    // In the garage, aim to the car's side so it sits clear of the panel; on the start screen
+    // it is the centrepiece, held a little above the dock.
+    const inGarage = state === 'garage';
+    const shift = inGarage && innerWidth > 720 ? 1.7 : 0;
     camera.position.set(p.x + sx * 7.5, 1.7, p.z + cz * 7.5);
-    camera.lookAt(p.x - cz * shift, 0.7, p.z + sx * shift);
+    camera.lookAt(p.x - cz * shift, inGarage ? 0.7 : 0.25, p.z + sx * shift);
     camera.fov += (42 - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
     return;

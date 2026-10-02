@@ -5,10 +5,11 @@
 const SB_URL = 'https://gowgppiupdhaomzdgvuq.supabase.co';
 const SB_KEY = 'sb_publishable_drRkF2vCnxJwzRmT7XK1KQ_Hr2wXELV';
 const ENDPOINT = `${SB_URL}/rest/v1/lap_times`;
+const BEST = `${SB_URL}/rest/v1/best_laps`;   // a view: each driver's fastest lap per track
 
 export async function fetchBoard(track) {
   try {
-    const res = await fetch(`${ENDPOINT}?select=player_name,lap_ms&track=eq.${encodeURIComponent(track)}&order=lap_ms.asc&limit=10`, {
+    const res = await fetch(`${BEST}?select=player_name,lap_ms&track=eq.${encodeURIComponent(track)}&order=lap_ms.asc&limit=10`, {
       headers: { apikey: SB_KEY },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
