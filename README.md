@@ -1,6 +1,6 @@
 # Sunset Circuit
 
-A 3D arcade racing game built with [three.js](https://threejs.org/). Six tracks, three rivals, a garage of ten cars, player accounts, and a global fastest-lap leaderboard for each track.
+A 3D arcade racing game built with [three.js](https://threejs.org/). Nine tracks, three rivals, a garage of ten cars, player accounts, and a global fastest-lap leaderboard for each track.
 
 **Play:** https://arosario28-ux.github.io/rocketjitll.cpp/
 
@@ -28,6 +28,9 @@ Pick the track and the race length (1, 3, 5 or 10 laps) on the start screen. Pri
 | Sunset Circuit | 1.6 km | Pine forest at sunset |
 | Neon District | 1.9 km | Street circuit through a rain-soaked neon city at night |
 | Ember Peak | 2.0 km | Lava fields around an erupting volcano |
+| Half-Mile Drag | 804 m | Drag strip: a straight sprint from a standing start, four abreast |
+| Palm Island | 1.8 km | Coast road around a sandy island, surrounded by sea |
+| Autumn Park | 1.8 km | Parkland in autumn colours |
 | Pinewood Speedway | 2.0 km | Sunlit oval with grandstands |
 | Switchback Ridge | 2.1 km | Snowy mountain pass |
 | Grand Tour | 3.2 km | Desert mesas and cacti |
@@ -108,6 +111,8 @@ python3 -m http.server 8000
 Then open http://localhost:8000.
 
 ## Credits
+
+Trees, grass, bushes, rocks, palms and cacti are models from the [Nature Kit](https://kenney.nl/assets/nature-kit) by Kenney (CC0), recoloured in code. Hills, buildings and the rest of the scenery are generated.
 
 The car models are from Sketchfab, used under their Creative Commons licences. Each was modified for this game with `tools/build-car.mjs` (rescaled, wheels separated, simplified, textures reduced, recompressed).
 

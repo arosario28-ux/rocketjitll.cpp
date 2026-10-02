@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export const ROAD_HALF = 7.5;          // half the tarmac width, metres
 export const WALL = ROAD_HALF + 7;     // guard-rail distance from the centre line
@@ -31,6 +32,28 @@ export const TRACKS = [
   {
     id: 'volcano', name: 'Ember Peak', theme: 'volcano', blurb: 'lava fields around a live volcano', scale: 1.3, seed: 451,
     points: ring([230, 250, 215, 240, 270, 225, 205, 240, 262, 218, 236, 256]),
+  },
+  {
+    // A point-to-point sprint: the race ends `sprint` metres down the first straight.
+    id: 'drag', name: 'Half-Mile Drag', theme: 'dragstrip', blurb: 'flat-out drag strip', scale: 1, seed: 402, sprint: 804,
+    points: [
+      [0, 0], [300, 0], [600, 0], [900, 0], [1080, -30], [1140, -110], [1080, -190], [900, -220],
+      [450, -220], [0, -220], [-180, -190], [-240, -110], [-180, -30],
+    ],
+  },
+  {
+    id: 'island', name: 'Palm Island', theme: 'coast', blurb: 'island coast road', scale: 1.2, seed: 77,
+    points: [
+      [0, 0], [120, 10], [220, -40], [260, -130], [200, -210], [100, -200], [40, -140], [-40, -180],
+      [-60, -270], [-160, -300], [-240, -230], [-220, -130], [-140, -90], [-150, -20], [-80, 10],
+    ],
+  },
+  {
+    id: 'autumn', name: 'Autumn Park', theme: 'autumn', blurb: 'parkland in autumn', scale: 1.3, seed: 1031,
+    points: [
+      [0, 0], [110, 0], [190, -40], [200, -120], [140, -170], [150, -250], [90, -310], [0, -290],
+      [-30, -210], [-110, -190], [-180, -240], [-250, -190], [-230, -100], [-150, -60], [-120, 0],
+    ],
   },
   {
     id: 'speedway', name: 'Pinewood Speedway', theme: 'speedway', blurb: 'sunlit oval', scale: 1.6, seed: 7,
@@ -79,6 +102,30 @@ const THEMES = {
     road: { roughness: 0.85, metalness: 0.03 }, hills: [0x4d6a45, 0x4d6a45], lamps: [[1.2, 1.2, 1.2]], pools: 0,
     clouds: 0xffffff,
   },
+  dragstrip: {
+    verge: ['#5f9f37', '#528e2f'], gravel: null,
+    sky: { elev: 46, az: 180, turbidity: 2.5, rayleigh: 1, mie: 0.004, mieG: 0.8 },
+    sun: [0xfff6e6, 3.5, 50], hemi: [0xbfd8ff, 0x5a6b3a, 1.0], fog: [0xc3d8ea, 0.0005], exposure: 0.42, bloom: 0.15,
+    ground: { base: '#4f8a2e', hue: [88, 22], sat: [45, 20], lum: [24, 18] },
+    road: { roughness: 0.85, metalness: 0.03 }, hills: [0x55724a, 0x55724a], lamps: [[1.2, 1.2, 1.2]], pools: 0,
+    clouds: 0xffffff,
+  },
+  coast: {
+    verge: ['#e2cf9c', '#d8c38d'], gravel: '#eadbb0',
+    sky: { elev: 52, az: 150, turbidity: 2, rayleigh: 0.8, mie: 0.003, mieG: 0.8 },
+    sun: [0xfff8ea, 3.8, 55], hemi: [0xbfe4ff, 0xc9b98a, 1.1], fog: [0xbfe3f2, 0.00045], exposure: 0.42, bloom: 0.15,
+    ground: { base: '#dcc890', hue: [44, 10], sat: [42, 14], lum: [62, 14] },
+    road: { roughness: 0.85, metalness: 0.03 }, hills: [0x4f8a4a, 0x6aa85a], lamps: [[1.2, 1.2, 1.2]], pools: 0,
+    clouds: 0xffffff,
+  },
+  autumn: {
+    verge: ['#7c7a35', '#6d6b2d'], gravel: '#b8a47c',
+    sky: { elev: 14, az: 250, turbidity: 6, rayleigh: 2, mie: 0.005, mieG: 0.8 },
+    sun: [0xffcf9a, 3.8, 20], hemi: [0xb9c6e6, 0x5a4326, 0.8], fog: [0xd6b890, 0.001], exposure: 0.45, bloom: 0.25,
+    ground: { base: '#6f6a2c', hue: [48, 24], sat: [38, 20], lum: [20, 18] },
+    road: { roughness: 0.82, metalness: 0.05 }, hills: [0x6b4a2e, 0x8a5a30], lamps: [[6, 4.2, 2.2]], pools: 0.1,
+    clouds: 0xffd9b0,
+  },
   alpine: {
     verge: ['#f6f9fc', '#e4ebf2'], gravel: '#cdd5de',
     sky: { elev: 16, az: 70, turbidity: 2.5, rayleigh: 1.4, mie: 0.003, mieG: 0.8 },
@@ -112,6 +159,44 @@ const THEMES = {
     lamps: [[9, 3.2, 0.8]], pools: 0.8, clouds: null, weather: 'embers',
   },
 };
+
+// Trees, grass, bushes and rocks are small models from Kenney's Nature Kit (CC0), loaded once and
+// instanced thousands of times. Each is stored standing on y = 0 and one unit tall.
+const NATURE_FILES = [
+  'tree_pineTallA_detailed', 'tree_pineTallB_detailed', 'tree_pineRoundC', 'tree_pineDefaultA',
+  'tree_oak', 'tree_detailed', 'tree_default', 'tree_oak_fall', 'tree_detailed_fall', 'tree_default_fall',
+  'tree_palmDetailedTall', 'tree_palmBend', 'tree_palmDetailedShort',
+  'grass_large', 'grass_leafsLarge', 'grass', 'plant_bushDetailed', 'plant_bushLarge',
+  'rock_largeA', 'rock_largeC', 'rock_tallB', 'stone_largeB', 'stone_tallD',
+  'cactus_tall', 'cactus_short', 'flower_yellowA', 'flower_redA', 'flower_purpleA',
+];
+const nature = {};   // name -> [{ geometry, color, kind }]
+// The kit ships in a pastel palette; these are the natural colours used instead, by material name.
+const NATURE_COLORS = [
+  [/leafsDark/, 0x2c5a30], [/leafsFall/, 0xc46f24], [/leafs/, 0x4b8a34], [/grass/, 0x5c9140],
+  [/woodBirch/, 0xa89479], [/wood/, 0x58402e], [/stone|_defaultMat/, 0x86827c], [/dirt/, 0x6d5a46],
+];
+
+export async function loadNature() {
+  const loader = new GLTFLoader();
+  await Promise.all(NATURE_FILES.map(async (name) => {
+    try {
+      const { scene } = await loader.loadAsync(`assets/nature/${name}.glb`);
+      scene.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(scene);
+      const height = box.max.y - box.min.y || 1;
+      const fit = new THREE.Matrix4().makeScale(1 / height, 1 / height, 1 / height)
+        .multiply(new THREE.Matrix4().makeTranslation(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2));
+      const parts = [];
+      scene.traverse((o) => {
+        if (o.isMesh) parts.push({ geometry: o.geometry.clone().applyMatrix4(o.matrixWorld).applyMatrix4(fit), color: o.material.color.clone(), kind: o.material.name });
+      });
+      nature[name] = parts;
+    } catch (err) {
+      console.warn(`Scenery model ${name} failed to load; plain shapes will stand in.`, err);
+    }
+  }));
+}
 
 // Small deterministic PRNG so the scenery is identical on every load.
 function mulberry(seed) {
@@ -168,7 +253,9 @@ export function trackLine(def) {
       speedProfile[i] = Math.min(speedProfile[i], Math.sqrt(next * next + 2 * 20 * DS));
     }
   }
-  return { pts, tan, nrm, N, DS, speedProfile, length };
+  // on a sprint track the race ends part-way down the first straight
+  const finish = def.sprint ? Math.round(def.sprint / DS) : 0;
+  return { pts, tan, nrm, N, DS, speedProfile, length, finish };
 }
 
 // Builds the track's scenery into one group, so switching tracks is a single add/remove.
@@ -235,6 +322,30 @@ export function buildTrack(renderer, def) {
     group.add(mesh);
     return mesh;
   }
+  // Scatters nature models: each spot gets one of `names` at a random size and turn.
+  // `tint(kind)` may return a colour to repaint a material (snow on pines, say). Returns false
+  // if none of the models loaded, so the caller can fall back to plain shapes.
+  function plant(names, spots, minH, maxH, tint) {
+    const ready = names.filter((n) => nature[n]);
+    if (!ready.length) return false;
+    const picks = spots.map(() => ({ name: ready[Math.floor(rand() * ready.length)], h: minH + rand() * (maxH - minH), turn: rand() * Math.PI * 2 }));
+    for (const name of ready) {
+      const mine = spots.map((spot, i) => [spot, picks[i]]).filter(([, pick]) => pick.name === name);
+      if (!mine.length) continue;
+      for (const part of nature[name]) {
+        const color = tint?.(part.kind) ?? NATURE_COLORS.find(([re]) => re.test(part.kind))?.[1] ?? part.color;
+        instances(part.geometry, new THREE.MeshStandardMaterial({ color, roughness: 0.95, flatShading: true }), mine, (i, [[x, z], pick]) => {
+          v.set(x, 0, z);
+          q.setFromAxisAngle(up, pick.turn);
+          sc.setScalar(pick.h);
+          return new THREE.Color().setScalar(0.78 + rand() * 0.44);   // no two quite the same shade
+        });
+      }
+    }
+    return true;
+  }
+  const leaves = (kind) => /leaf|grass/i.test(kind);
+
   const glowTex = canvasTexture(128, (ctx, s) => {
     const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
     g.addColorStop(0, 'rgba(255,255,255,1)');
@@ -482,8 +593,9 @@ export function buildTrack(renderer, def) {
     }, false,
   );
 
-  const gantry = new THREE.Group();
   const steel = new THREE.MeshStandardMaterial({ color: 0x23262c, metalness: 0.85, roughness: 0.35 });
+  function gantryAt(k, lights) {
+  const gantry = new THREE.Group();
   for (const side of [1, -1]) {
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.6, 8, 0.6), steel);
     leg.position.set(side * (WALL + 0.6), 4, 0);
@@ -504,6 +616,7 @@ export function buildTrack(renderer, def) {
     gantry.add(banner);
   }
   gantry.add(beam);
+  if (lights) {
   // start lights, facing the grid
   const housing = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.8, 0.3), steel);
   housing.position.set(0, 6.35, -0.5);
@@ -514,9 +627,19 @@ export function buildTrack(renderer, def) {
     bulb.position.set((i - 2) * 1.0, 6.35, -0.68);
     gantry.add(bulb);
   }
-  gantry.position.set(pts[0].x, 0, pts[0].z);
-  gantry.rotation.y = startYaw;
+  }
+  gantry.position.set(pts[k].x, 0, pts[k].z);
+  gantry.rotation.y = Math.atan2(tan[k].x, tan[k].z);
   group.add(gantry);
+  }
+  gantryAt(0, true);
+  if (route.finish) {
+    gantryAt(route.finish, false);
+    const finishLine = line.clone();
+    finishLine.position.set(pts[route.finish].x, 0.03, pts[route.finish].z);
+    finishLine.rotation.y = Math.atan2(tan[route.finish].x, tan[route.finish].z);
+    group.add(finishLine);
+  }
 
   // A grandstand with a speckled "crowd" facing the track at sample k.
   const crowdTex = canvasTexture(256, (ctx, s) => {
@@ -602,8 +725,9 @@ export function buildTrack(renderer, def) {
     }
   }
 
-  function pines(count, crownColor) {
+  function pines(count, crownColor, tint) {
     const spots = scatter(count, WALL + 6, 230);
+    if (plant(['tree_pineTallA_detailed', 'tree_pineTallB_detailed', 'tree_pineRoundC', 'tree_pineDefaultA'], spots, 8, 15, tint)) return;
     const trunkGeo = new THREE.CylinderGeometry(0.22, 0.34, 3, 6).translate(0, 1.5, 0);
     const crownGeo = mergeGeometries([
       new THREE.ConeGeometry(2.7, 4.2, 8).translate(0, 4.2, 0),
@@ -620,8 +744,10 @@ export function buildTrack(renderer, def) {
     instances(crownGeo, new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), spots, (i, s) => { place(i, s); return crownColor(); });
   }
 
-  function broadleaf(count, hue) {
+  function broadleaf(count, hue, fall) {
     const spots = scatter(count, WALL + 8, 200);
+    const names = fall ? ['tree_oak_fall', 'tree_detailed_fall', 'tree_default_fall'] : ['tree_oak', 'tree_detailed', 'tree_default'];
+    if (plant(names, spots, 6.5, 11)) return;
     const sizes = spots.map(() => 0.8 + rand() * 0.8);
     instances(new THREE.CylinderGeometry(0.25, 0.4, 3.4, 6).translate(0, 1.7, 0), new THREE.MeshStandardMaterial({ color: 0x4f3a28, roughness: 1 }), spots, (i, [x, z]) => {
       v.set(x, 0, z);
@@ -637,6 +763,8 @@ export function buildTrack(renderer, def) {
 
   function rocks(count, color, maxSize = 2.2, maxD = 160) {
     const spots = scatter(count, WALL + 3, maxD);
+    const stone = new THREE.Color(color);
+    if (plant(['rock_largeA', 'rock_largeC', 'rock_tallB', 'stone_largeB', 'stone_tallD'], spots, 0.5, maxSize * 1.1, (kind) => (leaves(kind) ? null : stone))) return;
     const base = new THREE.Color(color);
     instances(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), spots, (i, [x, z]) => {
       const s = 0.4 + rand() * maxSize;
@@ -647,8 +775,20 @@ export function buildTrack(renderer, def) {
     });
   }
 
+  // tufts of grass and wild flowers close to the track
+  function meadow(count, flowers = true, tint) {
+    plant(['grass_large', 'grass_leafsLarge', 'grass'], scatter(count, WALL + 1.5, 60), 0.45, 1.0, tint);
+    if (flowers) plant(['flower_yellowA', 'flower_redA', 'flower_purpleA'], scatter(Math.round(count / 5), WALL + 1.5, 45), 0.4, 0.7);
+  }
+
+  function palms(count) {
+    const spots = scatter(count, WALL + 5, 170);
+    if (!plant(['tree_palmDetailedTall', 'tree_palmBend', 'tree_palmDetailedShort'], spots, 7, 12)) pines(count, () => col.setHSL(0.3, 0.5, 0.14).clone());
+  }
+
   function bushes(count, hue) {
     const spots = scatter(count, WALL + 2.5, 70);
+    if (plant(['plant_bushDetailed', 'plant_bushLarge'], spots, 0.9, 2.2)) return;
     instances(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }), spots, (i, [x, z]) => {
       const s = 0.6 + rand() * 1.1;
       v.set(x, s * 0.45, z);
@@ -663,6 +803,7 @@ export function buildTrack(renderer, def) {
     forest() {
       pines(Math.min(1600, Math.round(length * 0.55)), () => col.setHSL(0.26 + rand() * 0.08, 0.45 + rand() * 0.2, 0.07 + rand() * 0.07).clone());
       broadleaf(Math.round(length * 0.1), 0.2);
+      meadow(1400);
       bushes(260, 0.24);
       rocks(90, 0x6d6a66);
       grandstand(8, 1);
@@ -674,6 +815,7 @@ export function buildTrack(renderer, def) {
     speedway() {
       pines(Math.round(length * 0.16), () => col.setHSL(0.28 + rand() * 0.06, 0.5, 0.12 + rand() * 0.08).clone());
       broadleaf(Math.round(length * 0.1), 0.25);
+      meadow(1200);
       bushes(120, 0.27);
       pits();
       for (let k = 4; k < N * 0.2; k += 26) { grandstand(k, 1); grandstand(k, -1); }
@@ -682,10 +824,58 @@ export function buildTrack(renderer, def) {
       clouds(34);
     },
 
+    dragstrip() {
+      // stands down both sides of the strip, open country beyond
+      for (let k = 6; k < route.finish + 20; k += 26) { grandstand(k, 1); grandstand(k, -1); }
+      broadleaf(Math.round(length * 0.08), 0.25);
+      pines(Math.round(length * 0.08), () => col.setHSL(0.3, 0.5, 0.14).clone());
+      meadow(1500);
+      bushes(160, 0.27);
+      hills(40);
+      clouds(34);
+    },
+
+    coast() {
+      // the sea: everything beyond the island's shoreline
+      const reach = Math.hypot(spanX, spanZ) / 2 + 190;
+      const sea = new THREE.Mesh(
+        new THREE.RingGeometry(reach, 4200, 72).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x1f8fb5, roughness: 0.18, metalness: 0.35 }),
+      );
+      sea.position.set(cx, 0.06, cz);
+      group.add(sea);
+      const shallows = new THREE.Mesh(
+        new THREE.RingGeometry(reach - 18, reach + 46, 72).rotateX(-Math.PI / 2),
+        new THREE.MeshStandardMaterial({ color: 0x5fd0d6, roughness: 0.2, metalness: 0.2, transparent: true, opacity: 0.75 }),
+      );
+      shallows.position.set(cx, 0.08, cz);
+      group.add(shallows);
+      palms(Math.round(length * 0.28));
+      meadow(900, true, () => new THREE.Color(0x7fae4a));
+      bushes(220, 0.27);
+      rocks(110, 0x9a9488, 2.4);
+      grandstand(8, 1);
+      pits();
+      hills(14);
+      clouds(30);
+    },
+
+    autumn() {
+      broadleaf(Math.min(1300, Math.round(length * 0.5)), 0.08, true);
+      pines(Math.round(length * 0.1), () => col.setHSL(0.26, 0.4, 0.12).clone());
+      meadow(1300, false, () => new THREE.Color(0x8a8236));
+      bushes(240, 0.12);
+      rocks(80, 0x6d6a66);
+      grandstand(8, 1);
+      pits();
+      hills();
+      clouds(22);
+    },
+
     alpine() {
       pines(Math.min(1500, Math.round(length * 0.5)), () => (rand() < 0.7
         ? col.setHSL(0.58, 0.18, 0.72 + rand() * 0.2).clone()
-        : col.setHSL(0.36, 0.3, 0.14 + rand() * 0.06).clone()));
+        : col.setHSL(0.36, 0.3, 0.14 + rand() * 0.06).clone()), (kind) => (leaves(kind) ? new THREE.Color(0xe9eff5) : null));
       rocks(240, 0x7c8590, 3.2);
       grandstand(8, 1);
       pits();
@@ -713,7 +903,8 @@ export function buildTrack(renderer, def) {
         new THREE.CylinderGeometry(0.2, 0.2, 1.1, 6).rotateZ(Math.PI / 2).translate(-0.65, 2.9, 0),
         new THREE.CylinderGeometry(0.2, 0.2, 1.2, 6).translate(-1.1, 3.5, 0),
       ]);
-      instances(cactus, new THREE.MeshStandardMaterial({ color: 0x4d7a3a, roughness: 0.9, flatShading: true }), scatter(170, WALL + 5, 200), (i, [x, z]) => {
+      const cactusSpots = scatter(170, WALL + 5, 200);
+      if (!plant(['cactus_tall', 'cactus_short'], cactusSpots, 1.6, 4.6)) instances(cactus, new THREE.MeshStandardMaterial({ color: 0x4d7a3a, roughness: 0.9, flatShading: true }), cactusSpots, (i, [x, z]) => {
         const s = 0.7 + rand() * 0.8;
         v.set(x, 0, z);
         q.setFromAxisAngle(up, rand() * 6);

@@ -564,3 +564,5 @@ kbd {
   .dock-card { flex: 1 1 100%; }
   .help { display: none; }
 }
+
+#lap-choices.off { opacity: .35; pointer-events: none; }

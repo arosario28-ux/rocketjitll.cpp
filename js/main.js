@@ -6,7 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildTrack, ROAD_HALF, WALL, TRACKS } from './track.js';
+import { buildTrack, loadNature, ROAD_HALF, WALL, TRACKS } from './track.js';
 import { fetchBoard, submitLap } from './leaderboard.js';
 import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalSpeed } from './garage.js';
 import { account } from './account.js';
@@ -617,7 +617,9 @@ const hud = {
   last: $('hud-last'), best: $('hud-best'), speed: $('hud-speed'), banner: $('banner'),
 };
 const overlay = $('overlay'), menu = $('menu'), results = $('results'), sub = $('overlay-sub');
-const menuText = () => `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 rivals · ${(track.length / 1000).toFixed(1)} km of ${trackDef.blurb}.`;
+const menuText = () => (track.finish
+  ? `Drag race · ${trackDef.sprint} m · 3 rivals · ${trackDef.blurb}.`
+  : `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 rivals · ${(track.length / 1000).toFixed(1)} km of ${trackDef.blurb}.`);
 const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
@@ -661,6 +663,9 @@ function resetGrid() {
   if (online) {   // side by side on the front row, host on the left
     placeOnGrid(player, 1, online.role === 'host' ? 3 : -3);
     placeOnGrid(rivals[0], 1, online.role === 'host' ? -3 : 3);
+  } else if (track.finish) {   // a drag race lines everyone up abreast
+    rivals.forEach((r, i) => placeOnGrid(r, 1, [4.5, 1.5, -1.5][i]));
+    placeOnGrid(player, 1, -4.5);
   } else {
     rivals.forEach((r, i) => placeOnGrid(r, i + 1, [3, -3, 3][i]));
     placeOnGrid(player, 4, -3);
@@ -684,6 +689,7 @@ function startRace(fromNet) {
   hud.root.hidden = false;
   touchUI.hidden = !isTouch;
   $('hud-total').textContent = `/${1 + activeRivals().length}`;
+  $('hud-laps').textContent = `/${track.finish ? 1 : raceLaps}`;
   $('pause-restart').hidden = !!online;
   hud.last.textContent = fmt(null);
   hud.best.textContent = fmt(allTimeBest);
@@ -709,7 +715,7 @@ function finishRace() {
   placeEl.className = 'place';
   placeEl.textContent = `${place}${suffix} place`;
   const dl = document.createElement('dl');
-  const prize = prizeFor(place, spec.level, raceLaps);
+  const prize = prizeFor(place, spec.level, track.finish ? 1 : raceLaps);
   garage.addCredits(prize);
   showWallet();
   for (const [k, v] of [['Race time', fmt(raceClock * 1000)], ['Best lap', fmt(raceBest)], ['Winnings', `+${garage.format(prize)}`]]) {
@@ -822,7 +828,7 @@ function settleOnline() {
     head.textContent = won ? 'You win' : 'You lose';
     row(o.peer.name, o.peerFinish ? fmt(o.peerFinish.time * 1000) : 'left the race');
     row('Best lap', fmt(o.myFinish.best));
-    const prize = prizeFor(won ? 1 : 2, spec.level, raceLaps);
+    const prize = prizeFor(won ? 1 : 2, spec.level, track.finish ? 1 : raceLaps);
     garage.addCredits(prize);
     row('Winnings', `+${garage.format(prize)}`);
     sub.textContent = 'Online race complete.';
@@ -967,6 +973,7 @@ function selectTrack(index) {
   // the original circuit's best was stored under 'sc_best' before there were several tracks
   allTimeBest = Number(localStorage.getItem(`sc_best_${def.id}`) || (def.id === 'sunset' && localStorage.getItem('sc_best'))) || null;
   $('track-name').textContent = def.name;
+  $('lap-choices').classList.toggle('off', !!track.finish);
   if (state === 'finished') {
     state = 'menu';
     results.hidden = true;
@@ -1115,7 +1122,18 @@ function updatePlayer(dt, live) {
   }
   syncCar(p, dt, brake && vF > 1);
 
-  if (live) {
+  if (live && track.finish) {
+    // sprint: one timed run to the finish line
+    if (p.prog >= track.finish) {
+      p.laps = 1;
+      lastLap = raceBest = raceClock * 1000;
+      if (!allTimeBest || lastLap < allTimeBest) {
+        allTimeBest = lastLap;
+        localStorage.setItem(`sc_best_${trackDef.id}`, String(Math.round(lastLap)));
+      }
+      finishRace();
+    }
+  } else if (live) {
     const done = Math.floor(p.prog / N);
     if (done > p.laps) {
       p.laps = done;
@@ -1137,10 +1155,11 @@ function updatePlayer(dt, live) {
 function updateRival(r, dt, live) {
   const i = wrap(Math.floor(r.prog));
   let target = live ? Math.min(speedProfile[wrap(i + 2)] * r.skill * rivalPace.corner, rivalPace.top) : 0;
-  if (r.laps >= raceLaps) target = Math.min(target, 22);
+  if (track.finish ? r.prog >= track.finish : r.laps >= raceLaps) target = Math.min(target, 22);
   const braking = r.speed > target + 0.5;
   // Same engine and drag as the player's car, a touch weaker, so straights are a fair fight.
-  const pull = 0.93 * (spec.accel * (1 - r.speed / spec.top) - ROLL_DRAG - AIR_DRAG * r.speed * r.speed);
+  // on a drag strip nothing but power separates the field, so rivals differ there too
+  const pull = (track.finish ? 0.93 * (r.baseSkill + 0.08) : 0.93) * (spec.accel * (1 - r.speed / spec.top) - ROLL_DRAG - AIR_DRAG * r.speed * r.speed);
   r.speed += clamp(target - r.speed, -spec.brake * 0.8 * dt, Math.max(pull, 0.5) * dt);
   r.prog += (r.speed * dt) / DS;
   r.laps = Math.max(r.laps, Math.floor(r.prog / N));
@@ -1300,7 +1319,7 @@ function frame() {
     if (!hud.root.hidden && (hudTick = (hudTick + 1) % 3) === 0) {
       hud.speed.textContent = Math.round(Math.abs(player.speed) * 3.6);
       hud.pos.textContent = standing();
-      hud.lap.textContent = Math.min(raceLaps, player.laps + 1);
+      hud.lap.textContent = track.finish ? 1 : Math.min(raceLaps, player.laps + 1);
       hud.time.textContent = fmt((raceClock - lapStart) * 1000);
       drawMinimap();
     }
@@ -1313,6 +1332,7 @@ function frame() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  await loadNature();   // scenery models, needed before the first track is built
   for (const n of LAP_CHOICES) {
     const chip = document.createElement('button');
     chip.type = 'button';
