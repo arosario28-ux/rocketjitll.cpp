@@ -8,11 +8,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildTrack, ROAD_HALF, WALL } from './track.js';
 import { fetchBoard, submitLap } from './leaderboard.js';
+import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalSpeed } from './garage.js';
 
 const LAPS = 3;
-const TOP_SPEED = 78;        // m/s
-const ENGINE = 15;           // m/s^2
-const BRAKE = 32;
 const WHEELBASE = 2.6;
 const WHEEL_RADIUS = 0.33;
 const CAR_RADIUS = 2.1;
@@ -122,17 +120,26 @@ function nearestIndex(x, z, hint) {
 
 // ---------------------------------------------------------------- cars
 
-const CAR_COLORS = [0xc8102e, 0x1463ff, 0xf2c200, 0xe9edf2];
+const RIVAL_COLORS = [0x1463ff, 0xf2c200, 0xe9edf2];
+const carbon = new THREE.MeshStandardMaterial({ color: 0x15171a, metalness: 0.6, roughness: 0.38 });
 
-function styleCar(model, color) {
-  const body = new THREE.MeshPhysicalMaterial({ color, metalness: 1, roughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.03 });
-  const details = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.45 });
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, metalness: 1, roughness: 0.04, transparent: true, opacity: 0.72 });
+function styleCar(model) {
+  // One set per car, so each can be painted independently.
+  const mats = {
+    body: new THREE.MeshPhysicalMaterial({ metalness: 1, roughness: 0.5, clearcoat: 1, clearcoatRoughness: 0.03 }),
+    rims: new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.4 }),
+    caliper: new THREE.MeshStandardMaterial({ metalness: 0.5, roughness: 0.45 }),
+    interior: new THREE.MeshStandardMaterial({ roughness: 0.7 }),
+    glass: new THREE.MeshPhysicalMaterial({ color: 0x0c0f14, metalness: 1, roughness: 0.04, transparent: true, opacity: 0.72 }),
+  };
+  const trim = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.45 });
   const set = (name, mat) => { const o = model.getObjectByName(name); if (o && o.isMesh) o.material = mat; };
 
-  set('body', body);
-  for (const n of ['rim_fl', 'rim_fr', 'rim_rr', 'rim_rl', 'trim']) set(n, details);
-  set('glass', glass);
+  set('body', mats.body);
+  for (const n of ['rim_fl', 'rim_fr', 'rim_rr', 'rim_rl']) set(n, mats.rims);
+  set('trim', trim);
+  set('glass', mats.glass);
+  for (const n of ['leather', 'steering_leather']) set(n, mats.interior);
 
   let tail = null;
   const tailMesh = model.getObjectByName('lights_red');
@@ -147,12 +154,77 @@ function styleCar(model, color) {
     head.material.emissiveIntensity = 2.5;
   }
 
-  model.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    if (/^brake(_\d+)?$/.test(o.name)) o.material = mats.caliper;
+  });
 
   const wheels = ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr'].map((n) => model.getObjectByName(n)).filter(Boolean);
   for (const w of wheels) w.rotation.order = 'YXZ';
-  return { wheels, tail };
+  return { wheels, tail, mats };
 }
+
+// Bolt-on aero that marks out the higher-tier cars. Sized from the body's bounding box.
+function buildKit(box) {
+  const rear = box.min.z, front = box.max.z, halfW = (box.max.x - box.min.x) / 2, deck = box.max.y * 0.76;
+  const part = (w, h, d, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), carbon);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    return m;
+  };
+  const lip = part(1.4, 0.04, 0.24, 0, deck + 0.04, rear + 0.3);
+  lip.rotation.x = 0.3;
+  const wing = new THREE.Group();
+  wing.add(part(1.72, 0.035, 0.38, 0, 0.3, 0), part(0.03, 0.17, 0.44, 0.87, 0.3, 0), part(0.03, 0.17, 0.44, -0.87, 0.3, 0));
+  wing.add(part(0.04, 0.3, 0.2, 0.48, 0.15, 0.02), part(0.04, 0.3, 0.2, -0.48, 0.15, 0.02));
+  wing.position.set(0, deck, rear + 0.48);
+  const splitter = part(halfW * 1.7, 0.03, 0.45, 0, 0.11, front - 0.34);
+  const skirts = new THREE.Group();
+  skirts.add(part(0.1, 0.05, 1.75, halfW - 0.06, 0.12, -0.17), part(0.1, 0.05, 1.75, 0.06 - halfW, 0.12, -0.17));
+  return { lip, wing, splitter, skirts };
+}
+
+function applyKit(car, tier) {
+  const { lip, wing, splitter, skirts } = car.kit;
+  lip.visible = tier === 1;
+  wing.visible = tier >= 2;
+  wing.scale.set(tier >= 4 ? 1.06 : 1, tier >= 4 ? 1.25 : 1, tier >= 4 ? 1.15 : 1);
+  splitter.visible = skirts.visible = tier >= 3;
+}
+
+function applyLook(car, look) {
+  const { body, rims, caliper, interior, glass } = car.mats;
+  body.color.setHex(look.paint);
+  body.metalness = look.finish.metalness;
+  body.roughness = look.finish.roughness;
+  body.clearcoat = look.finish.clearcoat;
+  body.clearcoatRoughness = look.finish.clearcoatRoughness;
+  rims.color.setHex(look.rims);
+  caliper.color.setHex(look.caliper);
+  interior.color.setHex(look.interior);
+  glass.opacity = look.tint;
+  car.glow.visible = look.glow != null;
+  if (look.glow != null) car.glow.material.color.setHex(look.glow).multiplyScalar(1.6);
+  car.color = look.paint;
+}
+
+const glowGeo = new THREE.PlaneGeometry(3.4, 6.2).rotateX(-Math.PI / 2);
+const glowTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 128, 256);
+  ctx.shadowColor = '#fff';
+  ctx.shadowBlur = 38;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(46, 76, 36, 104);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+})();
 
 // Used only if the GLB can't be fetched, so the game still runs.
 function fallbackCarModel() {
@@ -175,21 +247,27 @@ function fallbackCarModel() {
   return g;
 }
 
-function makeCar(template, color) {
+function makeCar(template) {
   const model = template.clone(true);
-  const { wheels, tail } = styleCar(model, color);
+  const { wheels, tail, mats } = styleCar(model);
   model.rotation.y = Math.PI;      // the GLB faces -z; the game treats +z as forward
   const tilt = new THREE.Group();  // body roll and pitch
   const root = new THREE.Group();
   tilt.add(model);
-  root.add(tilt);
+  const kit = buildKit(new THREE.Box3().setFromObject(tilt));
+  tilt.add(...Object.values(kit));
+  const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({
+    map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  glow.position.y = 0.05;
+  root.add(tilt, glow);
   scene.add(root);
   return {
-    root, tilt, wheels, tail,
+    root, tilt, wheels, tail, mats, kit, glow, color: 0xffffff,
     x: 0, z: 0, heading: 0, vx: 0, vz: 0, speed: 0,
     steer: 0, spin: 0, roll: 0, pitch: 0,
     idx: 0, lat: 0, prog: 0, laps: 0,
-    offset: 0, skill: 1,
+    offset: 0, skill: 1, baseSkill: 1,
   };
 }
 
@@ -230,6 +308,12 @@ const typing = () => document.activeElement === $('name');
 
 addEventListener('keydown', (e) => {
   if (typing()) { if (e.code === 'Enter') startRace(); return; }
+  if (state === 'garage') {
+    if (e.code === 'ArrowLeft') garage.step(-1);
+    else if (e.code === 'ArrowRight') garage.step(1);
+    else if (e.code === 'Escape') closeGarage();
+    return;
+  }
   if (KEYS[e.code]) { input[KEYS[e.code]] = true; e.preventDefault(); }
   else if (e.code === 'KeyC' && !e.repeat) camMode = (camMode + 1) % 2;
   else if (e.code === 'KeyR' && !e.repeat && state !== 'loading') startRace();
@@ -273,7 +357,7 @@ const audio = {
   update(speed, throttle, active) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    const r = clamp(Math.abs(speed) / TOP_SPEED, 0, 1) * 5;
+    const r = clamp(Math.abs(speed) / spec.top, 0, 1) * 5;
     const gear = Math.min(4, Math.floor(r));
     const rpm = 0.25 + 0.75 * clamp(r - gear, 0, 1);
     const f = 45 + rpm * 150;
@@ -287,9 +371,12 @@ const audio = {
 
 // ---------------------------------------------------------------- game state
 
-let state = 'loading';          // loading | menu | countdown | race | finished
+let state = 'loading';          // loading | menu | garage | countdown | race | finished
 let camMode = 0;                // 0 chase, 1 bonnet
 let player, rivals = [], cars = [];
+let garage;
+let spec = CARS[0], tier = 0;                 // the car the player races, and how far up the range it is
+const rivalPace = { corner: 1, top: 70 };     // rivals scale with the player's car
 let raceClock = 0, lapStart = 0, lastLap = null, raceBest = null, countdown = 0;
 let allTimeBest = Number(localStorage.getItem('sc_best')) || null;
 
@@ -298,6 +385,7 @@ const hud = {
   last: $('hud-last'), best: $('hud-best'), speed: $('hud-speed'), banner: $('banner'),
 };
 const overlay = $('overlay'), menu = $('menu'), results = $('results'), sub = $('overlay-sub');
+const MENU_TEXT = `${LAPS} laps · 3 rivals · ${(track.length / 1000).toFixed(1)} km of sunset tarmac.`;
 const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
@@ -308,7 +396,7 @@ function resetGrid() {
 }
 
 function startRace() {
-  if (state === 'loading' || state === 'countdown') return;
+  if (state === 'loading' || state === 'countdown' || state === 'garage') return;
   localStorage.setItem('sc_name', nameInput.value.trim());
   nameInput.blur();
   audio.start();
@@ -335,7 +423,10 @@ function finishRace() {
   placeEl.className = 'place';
   placeEl.textContent = `${place}${suffix} place`;
   const dl = document.createElement('dl');
-  for (const [k, v] of [['Race time', fmt(raceClock * 1000)], ['Best lap', fmt(raceBest)]]) {
+  const prize = prizeFor(place, tier);
+  garage.addCredits(prize);
+  showWallet();
+  for (const [k, v] of [['Race time', fmt(raceClock * 1000)], ['Best lap', fmt(raceBest)], ['Winnings', `+${garage.format(prize)}`]]) {
     const dt = document.createElement('dt'); dt.textContent = k;
     const dd = document.createElement('dd'); dd.textContent = v;
     dl.append(dt, dd);
@@ -349,6 +440,44 @@ function finishRace() {
 
   const name = nameInput.value.trim();
   if (name && raceBest && !TEST) submitLap(name, raceBest).then(refreshBoard);
+}
+
+function showWallet() {
+  $('wallet').textContent = `${garage.format(garage.credits)} · ${spec.name}`;
+}
+
+// Puts the selected car, its paint job and matching rivals on track.
+function applySelection() {
+  const sel = garage.selected();
+  spec = sel.car;
+  tier = sel.tier;
+  applyKit(player, tier);
+  applyLook(player, sel.look);
+  rivalPace.corner = Math.sqrt(spec.grip / CARS[0].grip);
+  rivalPace.top = terminalSpeed(spec) * 0.97;
+  for (const r of rivals) {
+    applyKit(r, tier);
+    r.skill = r.baseSkill + 0.012 * tier;
+  }
+  showWallet();
+}
+
+function openGarage() {
+  if (state !== 'menu' && state !== 'finished') return;
+  state = 'garage';
+  overlay.hidden = true;
+  resetGrid();
+  garage.open();
+}
+
+function closeGarage() {
+  garage.close();
+  applySelection();
+  state = 'menu';
+  results.hidden = true;
+  sub.textContent = MENU_TEXT;
+  $('start').textContent = 'START RACE';
+  overlay.hidden = false;
 }
 
 function standing() {
@@ -383,7 +512,7 @@ function autopilot(car) {
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   const tx = pts[look].x - car.x, tz = pts[look].z - car.z;
   const err = Math.atan2(fz * tx - fx * tz, fx * tx + fz * tz);
-  const target = speedProfile[wrap(car.idx + 3)] * 1.05;
+  const target = speedProfile[wrap(car.idx + 3)] * 1.05 * rivalPace.corner;
   input.left = err > 0.03; input.right = err < -0.03;
   input.up = car.speed < target; input.down = car.speed > target + 3;
 }
@@ -403,10 +532,10 @@ function updatePlayer(dt, live) {
   const onGrass = Math.abs(p.lat) > ROAD_HALF + 1.2;
 
   let a = 0;
-  if (throttle) a += vF > -0.5 ? ENGINE * (1 - Math.max(vF, 0) / TOP_SPEED) : BRAKE;
-  if (brake) a -= vF > 0.5 ? BRAKE : (vF > -14 ? 9 : 0);
+  if (throttle) a += vF > -0.5 ? spec.accel * (1 - Math.max(vF, 0) / spec.top) : spec.brake;
+  if (brake) a -= vF > 0.5 ? spec.brake : (vF > -14 ? 9 : 0);
   if (Math.abs(vF) > 0.2) {
-    a -= Math.sign(vF) * (0.5 + 0.0007 * vF * vF + (hand ? 9 : 0));
+    a -= Math.sign(vF) * (ROLL_DRAG + AIR_DRAG * vF * vF + (hand ? 9 : 0));
     if (onGrass) a -= vF * 0.8;
   } else if (!throttle && !brake) {
     vF = 0;
@@ -415,7 +544,7 @@ function updatePlayer(dt, live) {
 
   // Steering lock tightens with speed, and yaw is capped by available grip.
   const maxSteer = 0.5 / (1 + Math.pow(Math.abs(vF) / 25, 1.2));
-  const grip = (onGrass ? 12 : 25) * (hand ? 1.5 : 1);
+  const grip = spec.grip * (onGrass ? 0.48 : 1) * (hand ? 1.5 : 1);
   const yawCap = grip / Math.max(Math.abs(vF), 4);
   const yaw = clamp((vF * Math.tan(p.steer * maxSteer)) / WHEELBASE, -yawCap, yawCap);
 
@@ -488,10 +617,10 @@ function updatePlayer(dt, live) {
 
 function updateRival(r, dt, live) {
   const i = wrap(Math.floor(r.prog));
-  let target = live ? Math.min(speedProfile[wrap(i + 2)] * r.skill, TOP_SPEED * 0.9) : 0;
+  let target = live ? Math.min(speedProfile[wrap(i + 2)] * r.skill * rivalPace.corner, rivalPace.top) : 0;
   if (r.laps >= LAPS) target = Math.min(target, 22);
   const braking = r.speed > target + 0.5;
-  r.speed += clamp(target - r.speed, -26 * dt, ENGINE * 0.92 * (1 - r.speed / TOP_SPEED) * dt);
+  r.speed += clamp(target - r.speed, -spec.brake * 0.8 * dt, spec.accel * 0.92 * (1 - r.speed / spec.top) * dt);
   r.prog += (r.speed * dt) / DS;
   r.laps = Math.max(r.laps, Math.floor(r.prog / N));
 
@@ -518,15 +647,18 @@ let menuAngle = 0;
 
 function updateCamera(dt) {
   const p = player;
-  if (state === 'menu' || state === 'finished') {
+  if (state === 'menu' || state === 'finished' || state === 'garage') {
     menuAngle += dt * 0.18;
-    camera.position.set(p.x + Math.sin(menuAngle) * 7.5, 1.7, p.z + Math.cos(menuAngle) * 7.5);
-    camera.lookAt(p.x, 0.7, p.z);
+    const sx = Math.sin(menuAngle), cz = Math.cos(menuAngle);
+    // Aim to the car's side so it sits clear of the menu panel on wide screens.
+    const shift = innerWidth > 720 ? 1.7 : 0;
+    camera.position.set(p.x + sx * 7.5, 1.7, p.z + cz * 7.5);
+    camera.lookAt(p.x - cz * shift, 0.7, p.z + sx * shift);
     camera.fov += (42 - camera.fov) * Math.min(1, dt * 4);
     camera.updateProjectionMatrix();
     return;
   }
-  const speedK = clamp(Math.abs(p.speed) / TOP_SPEED, 0, 1);
+  const speedK = clamp(Math.abs(p.speed) / spec.top, 0, 1);
   if (camMode === 1) {
     const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
     camera.position.set(p.x + fx * 0.35, 1.08, p.z + fz * 0.35);
@@ -582,11 +714,11 @@ const mapXf = (() => {
 function drawMinimap() {
   mctx.clearRect(0, 0, mini.width, mini.height);
   mctx.drawImage(mapBase, 0, 0);
-  cars.forEach((car, i) => {
+  cars.forEach((car) => {
     const [x, y] = mapXf(car.x, car.z);
     mctx.beginPath();
     mctx.arc(x, y, car === player ? 6 : 4.5, 0, Math.PI * 2);
-    mctx.fillStyle = '#' + CAR_COLORS[i].toString(16).padStart(6, '0');
+    mctx.fillStyle = '#' + car.color.toString(16).padStart(6, '0');
     mctx.fill();
     mctx.lineWidth = 1.5;
     mctx.strokeStyle = car === player ? '#fff' : 'rgba(0,0,0,.6)';
@@ -654,20 +786,28 @@ async function loadCarTemplate() {
 
 async function boot() {
   const template = await loadCarTemplate();
-  rivals = [0.9, 0.86, 0.82].map((skill, i) => Object.assign(makeCar(template, CAR_COLORS[i + 1]), { skill }));
-  player = makeCar(template, CAR_COLORS[0]);
+  rivals = [0.9, 0.86, 0.82].map((baseSkill, i) => {
+    const car = Object.assign(makeCar(template), { baseSkill });
+    applyLook(car, rivalLook(RIVAL_COLORS[i]));
+    return car;
+  });
+  player = makeCar(template);
   cars = [player, ...rivals];
+  garage = createGarage({ onPreview: (previewTier, look) => { applyKit(player, previewTier); applyLook(player, look); } });
+  applySelection();
   resetGrid();
 
   state = 'menu';
-  sub.textContent = `${LAPS} laps · 3 rivals · ${(track.length / 1000).toFixed(1)} km of sunset tarmac.`;
+  sub.textContent = MENU_TEXT;
   menu.hidden = false;
   $('start').addEventListener('click', startRace);
+  $('open-garage').addEventListener('click', openGarage);
+  $('g-back').addEventListener('click', closeGarage);
   refreshBoard();
   if (TEST) startRace();
 }
 
-window.__game = { get state() { return state; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
+window.__game = { get state() { return state; }, get garage() { return garage; }, get player() { return player; }, get rivals() { return rivals; }, get clock() { return raceClock; } };
 
 requestAnimationFrame(frame);
 boot();

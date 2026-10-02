@@ -57,6 +57,10 @@
           <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Your name">
         </label>
         <button id="start">START RACE</button>
+        <div class="garage-row">
+          <button id="open-garage">GARAGE</button>
+          <span id="wallet"></span>
+        </div>
         <ul class="controls">
           <li><kbd>W</kbd>/<kbd>↑</kbd> gas</li>
           <li><kbd>S</kbd>/<kbd>↓</kbd> brake · reverse</li>
@@ -65,6 +69,7 @@
           <li><kbd>C</kbd> camera</li>
           <li><kbd>R</kbd> restart</li>
           <li><kbd>M</kbd> mute</li>
+          <li>Win races to earn credits for faster cars.</li>
         </ul>
       </div>
 
@@ -72,6 +77,26 @@
         <h2>Fastest laps</h2>
         <ol id="board-list"><li class="empty">Loading…</li></ol>
       </div>
+    </div>
+  </div>
+
+  <div id="garage" hidden>
+    <div class="panel">
+      <div class="g-head">
+        <button id="g-back">← BACK</button>
+        <span id="g-credits"></span>
+      </div>
+      <div class="g-car">
+        <button id="g-prev" aria-label="Previous car">◀</button>
+        <div>
+          <h2 id="g-name"></h2>
+          <p id="g-tag"></p>
+        </div>
+        <button id="g-next" aria-label="Next car">▶</button>
+      </div>
+      <div id="g-stats"></div>
+      <button id="g-action"></button>
+      <div id="g-custom"></div>
     </div>
   </div>
 
