@@ -508,6 +508,9 @@ function placeOnGrid(car, slot, offset) {
   car.idx = k;
   car.offset = car.lat = car.lane = offset;
   car.mistake = 0;
+  car.latVel = 0;
+  car.passSide = 0;
+  car.passHold = 0;
   car.inBrakeZone = false;
   car.react = 0.12 + Math.random() * 0.38;
   car.x = pts[k].x + nrm[k].x * offset;
@@ -1419,8 +1422,11 @@ function updateRival(r, dt, live) {
     if (o === r || !o.root.visible) continue;
     const gap = wrapDiff(wrap(Math.floor(o.prog)) - i) * DS;   // metres ahead (+) or behind (-)
     if (gap > 0 && gap < 18 && Math.abs(o.lat - r.lat) < 2.5) {
-      // a car in the way: go round on the side with more room, and don't run into it meanwhile
-      want = o.lat + (o.lat > 0 ? -3.4 : 3.4);
+      // a car in the way: go round on the side with more room, and don't run into it meanwhile.
+      // Once a side is chosen it is kept, so the car doesn't dither from one to the other.
+      if (!r.passSide) r.passSide = o.lat > 0 ? -1 : 1;
+      r.passHold = 1.2;
+      want = o.lat + r.passSide * 3.4;
       if (gap < 7) target = Math.min(target, o.speed + 1);
     } else if (o === player && r.defends && gap < 0 && gap > -12 && o.speed > r.speed - 2) {
       want = want * 0.45 + o.lat * 0.55;   // cover the line the player is taking
@@ -1435,13 +1441,16 @@ function updateRival(r, dt, live) {
   r.inBrakeZone = braking;
   if (r.mistake > 0) {
     r.mistake -= dt;
-    want += r.wide * 4;
+    want += r.wide * 3;
     target *= 0.84;
   }
+  if (r.passHold > 0 && (r.passHold -= dt) <= 0) r.passSide = 0;
   want = clamp(want, -(ROAD_HALF - 1.4), ROAD_HALF - 1.4);
-  const reach = 3.2 * dt * Math.min(1, r.speed / 8);   // a parked car can't move sideways
-  const slide = clamp(want - r.offset, -reach, reach);
-  r.offset += slide;
+  // Ease across the road: sideways speed builds up and bleeds off rather than snapping, so
+  // lane changes look like steering and not like a sidestep. A parked car can't move sideways.
+  const wantVel = clamp((want - r.offset) * 1.4, -3, 3) * Math.min(1, r.speed / 8);
+  r.latVel += clamp(wantVel - r.latVel, -5 * dt, 5 * dt);
+  r.offset += r.latVel * dt;
   r.lat = r.offset;
 
   const slowing = r.speed > target + 0.5;
@@ -1459,11 +1468,13 @@ function updateRival(r, dt, live) {
   r.z = pts[a].z + (pts[b].z - pts[a].z) * f + nz * r.offset;
   const tx = tan[a].x + (tan[b].x - tan[a].x) * f, tz = tan[a].z + (tan[b].z - tan[a].z) * f;
   // point the nose where the car is actually going, including its sideways drift across the road
-  const heading = Math.atan2(tx, tz) + clamp(slide / Math.max(dt, 1e-3) / Math.max(r.speed, 8), -0.2, 0.2);
+  const heading = Math.atan2(tx, tz) + Math.atan2(r.latVel, Math.max(r.speed, 8));
   let dh = heading - r.heading;
   dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-  r.steer = clamp(dh / Math.max(dt, 1e-3) * 0.6, -1, 1);
-  r.heading = heading;
+  // the nose follows the path through a short lag, and the front wheels ease toward the turn
+  const turn = dh * Math.min(1, dt * 9);
+  r.heading += turn;
+  r.steer += (clamp(turn / Math.max(dt, 1e-3) * 0.6, -1, 1) - r.steer) * Math.min(1, dt * 6);
   syncCar(r, dt, slowing && live);
 }
 
