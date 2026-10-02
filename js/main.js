@@ -6,11 +6,11 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { buildTrack, ROAD_HALF, WALL } from './track.js';
+import { buildTrack, ROAD_HALF, WALL, TRACKS } from './track.js';
 import { fetchBoard, submitLap } from './leaderboard.js';
 import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalSpeed } from './garage.js';
 
-const LAPS = 3;
+const LAP_CHOICES = [1, 3, 5, 10];
 const WHEELBASE = 2.6;
 const CAR_RADIUS = 2.1;
 const DRACO_PATH = 'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/libs/draco/gltf/';
@@ -97,8 +97,19 @@ scene.add(new THREE.HemisphereLight(0x9db4ff, 0x4a3b2c, 0.7));
 
 // ---------------------------------------------------------------- world
 
-const track = buildTrack(scene, renderer);
-const { pts, tan, nrm, N, DS, speedProfile } = track;
+let track, trackDef, pts, tan, nrm, N, DS, speedProfile;
+
+function loadTrack(def) {
+  if (track) {
+    scene.remove(track.group);
+    track.dispose();
+  }
+  trackDef = def;
+  track = buildTrack(renderer, def);
+  ({ pts, tan, nrm, N, DS, speedProfile } = track);
+  scene.add(track.group);
+  drawMapBase();
+}
 
 const wrap = (i) => ((i % N) + N) % N;
 const wrapDiff = (d) => (d > N / 2 ? d - N : d < -N / 2 ? d + N : d);
@@ -380,14 +391,15 @@ let garage;
 let spec = CARS[0], tier = 0;                 // the car the player races, and how far up the range it is
 const rivalPace = { corner: 1, top: 70 };     // rivals scale with the player's car
 let raceClock = 0, lapStart = 0, lastLap = null, raceBest = null, countdown = 0;
-let allTimeBest = Number(localStorage.getItem('sc_best')) || null;
+let raceLaps = 3;
+let allTimeBest = null;   // best lap on the current track, in this browser
 
 const hud = {
   root: $('hud'), pos: $('hud-pos'), lap: $('hud-lap'), time: $('hud-time'),
   last: $('hud-last'), best: $('hud-best'), speed: $('hud-speed'), banner: $('banner'),
 };
 const overlay = $('overlay'), menu = $('menu'), results = $('results'), sub = $('overlay-sub');
-const MENU_TEXT = `${LAPS} laps · 3 rivals · ${(track.length / 1000).toFixed(1)} km of sunset tarmac.`;
+const menuText = () => `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 rivals · ${(track.length / 1000).toFixed(1)} km of sunset tarmac.`;
 const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
@@ -425,7 +437,7 @@ function finishRace() {
   placeEl.className = 'place';
   placeEl.textContent = `${place}${suffix} place`;
   const dl = document.createElement('dl');
-  const prize = prizeFor(place, tier);
+  const prize = prizeFor(place, tier, raceLaps);
   garage.addCredits(prize);
   showWallet();
   for (const [k, v] of [['Race time', fmt(raceClock * 1000)], ['Best lap', fmt(raceBest)], ['Winnings', `+${garage.format(prize)}`]]) {
@@ -441,7 +453,7 @@ function finishRace() {
   touchUI.hidden = true;
 
   const name = nameInput.value.trim();
-  if (name && raceBest && !TEST) submitLap(name, raceBest).then(refreshBoard);
+  if (name && raceBest && !TEST) submitLap(name, raceBest, trackDef.id).then(refreshBoard);
 }
 
 function showWallet() {
@@ -478,9 +490,35 @@ function closeGarage() {
   applySelection();
   state = 'menu';
   results.hidden = true;
-  sub.textContent = MENU_TEXT;
+  sub.textContent = menuText();
   $('start').textContent = 'START RACE';
   overlay.hidden = false;
+}
+
+// Switches circuit. Only reachable from the menu, so no race is in progress.
+function selectTrack(index) {
+  const def = TRACKS[(index + TRACKS.length) % TRACKS.length];
+  loadTrack(def);
+  localStorage.setItem('sc_track', def.id);
+  // the original circuit's best was stored under 'sc_best' before there were several tracks
+  allTimeBest = Number(localStorage.getItem(`sc_best_${def.id}`) || (def.id === 'sunset' && localStorage.getItem('sc_best'))) || null;
+  $('track-name').textContent = def.name;
+  if (state === 'finished') {
+    state = 'menu';
+    results.hidden = true;
+    $('start').textContent = 'START RACE';
+  }
+  if (player) resetGrid();
+  sub.textContent = menuText();
+  refreshBoard();
+}
+
+function selectLaps(n) {
+  raceLaps = n;
+  localStorage.setItem('sc_laps', String(n));
+  $('hud-laps').textContent = `/${n}`;
+  for (const chip of $('lap-choices').children) chip.classList.toggle('on', Number(chip.textContent) === n);
+  if (track) sub.textContent = menuText();
 }
 
 function standing() {
@@ -489,7 +527,10 @@ function standing() {
 
 async function refreshBoard() {
   const list = $('board-list');
-  const rows = await fetchBoard();
+  const shown = trackDef;
+  $('board-title').textContent = `Fastest laps · ${shown.name}`;
+  const rows = await fetchBoard(shown.id);
+  if (shown !== trackDef) return;   // the player switched track while this was loading
   list.replaceChildren();
   if (!rows || !rows.length) {
     const li = document.createElement('li');
@@ -556,7 +597,11 @@ function updatePlayer(dt, live) {
   p.heading += yaw * dt;
   fx = Math.sin(p.heading); fz = Math.cos(p.heading);
   vF = wx * fx + wz * fz;
-  vL = (wx * fz - wz * fx) * Math.exp(-(hand ? 1.8 : onGrass ? 4 : 9) * dt);
+  const slide = wx * fz - wz * fx;
+  vL = slide * Math.exp(-(hand ? 1.8 : onGrass ? 4 : 9) * dt);
+  // Gripping tyres turn most of a slide back into forward speed; without this, long fast
+  // corners would bleed speed far faster than a real car does.
+  if (!hand && !onGrass) vF = Math.sign(vF) * Math.sqrt(vF * vF + 0.6 * (slide * slide - vL * vL));
   p.vx = fx * vF + fz * vL;
   p.vz = fz * vF - fx * vL;
   p.x += p.vx * dt;
@@ -608,11 +653,11 @@ function updatePlayer(dt, live) {
       if (!raceBest || lastLap < raceBest) raceBest = lastLap;
       if (!allTimeBest || lastLap < allTimeBest) {
         allTimeBest = lastLap;
-        localStorage.setItem('sc_best', String(Math.round(lastLap)));
+        localStorage.setItem(`sc_best_${trackDef.id}`, String(Math.round(lastLap)));
       }
       hud.last.textContent = fmt(lastLap);
       hud.best.textContent = fmt(allTimeBest);
-      if (p.laps >= LAPS) finishRace();
+      if (p.laps >= raceLaps) finishRace();
     }
   }
   return throttle;
@@ -621,9 +666,11 @@ function updatePlayer(dt, live) {
 function updateRival(r, dt, live) {
   const i = wrap(Math.floor(r.prog));
   let target = live ? Math.min(speedProfile[wrap(i + 2)] * r.skill * rivalPace.corner, rivalPace.top) : 0;
-  if (r.laps >= LAPS) target = Math.min(target, 22);
+  if (r.laps >= raceLaps) target = Math.min(target, 22);
   const braking = r.speed > target + 0.5;
-  r.speed += clamp(target - r.speed, -spec.brake * 0.8 * dt, spec.accel * 0.92 * (1 - r.speed / spec.top) * dt);
+  // Same engine and drag as the player's car, a touch weaker, so straights are a fair fight.
+  const pull = 0.93 * (spec.accel * (1 - r.speed / spec.top) - ROLL_DRAG - AIR_DRAG * r.speed * r.speed);
+  r.speed += clamp(target - r.speed, -spec.brake * 0.8 * dt, Math.max(pull, 0.5) * dt);
   r.prog += (r.speed * dt) / DS;
   r.laps = Math.max(r.laps, Math.floor(r.prog / N));
 
@@ -689,7 +736,9 @@ const mini = $('minimap');
 const mctx = mini.getContext('2d');
 const mapBase = document.createElement('canvas');
 mapBase.width = mapBase.height = mini.width;
-const mapXf = (() => {
+let mapXf;
+
+function drawMapBase() {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const p of pts) {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
@@ -698,10 +747,10 @@ const mapXf = (() => {
   const s = (mini.width - 36) / Math.max(maxX - minX, maxZ - minZ);
   const ox = (mini.width - (maxX - minX) * s) / 2 - minX * s;
   const oz = (mini.height - (maxZ - minZ) * s) / 2 - minZ * s;
-  return (x, z) => [x * s + ox, z * s + oz];
-})();
-{
+  mapXf = (x, z) => [x * s + ox, z * s + oz];
+
   const c = mapBase.getContext('2d');
+  c.clearRect(0, 0, mapBase.width, mapBase.height);
   c.beginPath();
   pts.forEach((p, i) => { const [x, y] = mapXf(p.x, p.z); i ? c.lineTo(x, y) : c.moveTo(x, y); });
   c.closePath();
@@ -764,7 +813,7 @@ function frame() {
     if (!hud.root.hidden && (hudTick = (hudTick + 1) % 3) === 0) {
       hud.speed.textContent = Math.round(Math.abs(player.speed) * 3.6);
       hud.pos.textContent = standing();
-      hud.lap.textContent = Math.min(LAPS, player.laps + 1);
+      hud.lap.textContent = Math.min(raceLaps, player.laps + 1);
       hud.time.textContent = fmt((raceClock - lapStart) * 1000);
       drawMinimap();
     }
@@ -777,6 +826,21 @@ function frame() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
+  for (const n of LAP_CHOICES) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = n;
+    chip.addEventListener('click', () => selectLaps(n));
+    $('lap-choices').append(chip);
+  }
+  const savedLaps = Number(params.get('laps') || localStorage.getItem('sc_laps'));
+  selectLaps(LAP_CHOICES.includes(savedLaps) ? savedLaps : 3);
+  const savedTrack = params.get('track') || localStorage.getItem('sc_track');
+  selectTrack(Math.max(0, TRACKS.findIndex((t) => t.id === savedTrack)));
+  $('track-prev').addEventListener('click', () => selectTrack(TRACKS.indexOf(trackDef) - 1));
+  $('track-next').addEventListener('click', () => selectTrack(TRACKS.indexOf(trackDef) + 1));
+
   rivals = [0.9, 0.86, 0.82].map((baseSkill) => Object.assign(makeCar(), { baseSkill }));
   player = makeCar();
   cars = [player, ...rivals];
@@ -785,7 +849,7 @@ async function boot() {
   resetGrid();
 
   state = 'menu';
-  sub.textContent = MENU_TEXT;
+  sub.textContent = menuText();
   menu.hidden = false;
   $('start').addEventListener('click', startRace);
   $('open-garage').addEventListener('click', openGarage);

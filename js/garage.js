@@ -53,7 +53,8 @@ const colorsOf = (key) => OPTIONS.find((o) => o.key === key).colors;
 const DEFAULT_LOOK = { paint: 0, finish: 1, rims: 0, caliper: 0, interior: 0, tint: 1, glow: 0 };
 
 const PRIZES = [1000, 400, 200, 100];
-export const prizeFor = (place, tier) => Math.round(PRIZES[place - 1] * (1 + 0.25 * tier));
+// Prizes are quoted for a three-lap race and scale with distance, so short races can't be farmed.
+export const prizeFor = (place, tier, laps) => Math.round(PRIZES[place - 1] * (1 + 0.25 * tier) * laps / 3);
 
 // Speed where engine pull and drag balance: what the car actually reaches on a long straight.
 export function terminalSpeed(car) {

@@ -170,6 +170,22 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
 #start:hover, #g-action:hover:not(:disabled) { filter: brightness(1.08); }
 #g-action:disabled { background: rgba(255, 255, 255, .14); color: rgba(255, 255, 255, .7); cursor: default; }
 
+/* ---------- Track and lap pickers ---------- */
+
+.pick { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.pick-label { width: 52px; flex: none; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .9; }
+#track-name { flex: 1; text-align: center; font-weight: 800; font-style: italic; font-size: 17px; }
+#track-prev, #track-next {
+  padding: 7px 12px;
+  font: inherit;
+  color: #fff;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 10px;
+  cursor: pointer;
+}
+#track-prev:hover, #track-next:hover { background: rgba(255, 255, 255, .2); }
+
 /* ---------- Garage ---------- */
 
 .garage-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }

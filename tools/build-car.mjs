@@ -66,32 +66,76 @@ for (const p of parts) {
 b = bounds(parts.map((p) => p.world));
 console.log(`size  ${b.size.map((n) => n.toFixed(2)).join(' x ')} m (w,h,l), scale ${scale.toFixed(4)}, yaw ${Math.round(yaw * 180 / Math.PI)}`);
 
-// ---- find the wheels: four clusters of vertices touching the ground
+// ---- find the wheels
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = (a) => { const l = Math.hypot(...a) || 1; return a.map((v) => v / l); };
+
+// Direction in which a point cloud is thinnest. For a tyre and rim that is the axle.
+function thinAxis(pts) {
+  const n = pts.length / 3, mean = [0, 0, 0];
+  for (let i = 0; i < pts.length; i += 3) for (let k = 0; k < 3; k++) mean[k] += pts[i + k] / n;
+  const c = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < pts.length; i += 3) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) c[j][k] += (pts[i + j] - mean[j]) * (pts[i + k] - mean[k]) / n;
+  // Jacobi eigen-decomposition of the 3x3 covariance
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 30; sweep++) for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
+    if (Math.abs(c[p][q]) < 1e-12) continue;
+    const th = 0.5 * Math.atan2(2 * c[p][q], c[q][q] - c[p][p]), co = Math.cos(th), si = Math.sin(th);
+    for (let k = 0; k < 3; k++) { const a = c[k][p], b2 = c[k][q]; c[k][p] = co * a - si * b2; c[k][q] = si * a + co * b2; }
+    for (let k = 0; k < 3; k++) { const a = c[p][k], b2 = c[q][k]; c[p][k] = co * a - si * b2; c[q][k] = si * a + co * b2; }
+    for (let k = 0; k < 3; k++) { const a = v[k][p], b2 = v[k][q]; v[k][p] = co * a - si * b2; v[k][q] = si * a + co * b2; }
+  }
+  const m = [0, 1, 2].reduce((best, k) => (c[k][k] < c[best][best] ? k : best), 0);
+  return unit([v[0][m], v[1][m], v[2][m]]);
+}
+
+// cfg.wheelParts names materials (or nodes) that only occur on wheels. With it, each wheel's
+// centre, radius and width are measured from that geometry; cfg.unsteer also straightens wheels
+// the artist posed turned or cambered. Without it, the wheel is assumed to be a cylinder of the
+// configured radius standing on the ground above its contact patch.
+const partsRe = cfg.wheelParts ? new RegExp(cfg.wheelParts, 'i') : null;
 const wheels = [];
 for (const [name, sx, sz] of [['wheel_fl', 1, 1], ['wheel_fr', -1, 1], ['wheel_rl', 1, -1], ['wheel_rr', -1, -1]]) {
-  const o = cfg.wheels?.[name] || {};
   const inQuad = (x, z) => x * sx > 0.3 && z * sz > 0.4;
-  const patch = bounds(parts.map((p) => p.world), (x, y, z) => y < 0.02 && inQuad(x, z));
-  const cz = o.z ?? patch.mid[2], cx0 = patch.mid[0];
-  // radius: a tyre of radius r is 2*sqrt(2rh - h^2) long at height h; measure that just above the ground
-  let r = o.r ?? (sz > 0 ? cfg.rFront : cfg.rRear);
-  if (r == null) {
-    const est = [];
-    for (let h = 0.04; h <= 0.101; h += 0.01) {
-      const band = bounds(parts.map((p) => p.world), (x, y, z) => Math.abs(y - h) < 0.004 && Math.abs(x - cx0) < 0.12 && Math.abs(z - cz) < 0.45);
-      const e = band.size[2] / 2;
-      if (e > 0.05) est.push((e * e + h * h) / (2 * h));
+  const patch = bounds(parts.map((p) => p.world), (x, y, z) => y < 0.06 && inQuad(x, z));
+  const r0 = (sz > 0 ? cfg.rFront : cfg.rRear) ?? 0.34;
+  const cz0 = patch.mid[2], cx0 = patch.mid[0];
+  let ax = [1, 0, 0], c, r, inA, outA;
+  if (partsRe) {
+    const pts = [];
+    for (const p of parts) {
+      if (!partsRe.test(p.mat?.getName() || '') && !partsRe.test(p.name)) continue;
+      for (let i = 0, a = p.world; i < a.length; i += 3) {
+        if (inQuad(a[i], a[i + 2]) && Math.abs(a[i] - cx0) < 0.4 && Math.hypot(a[i + 2] - cz0, a[i + 1] - r0) < r0 + 0.12) pts.push(a[i], a[i + 1], a[i + 2]);
+      }
     }
-    est.sort((x, y) => x - y);
-    r = est.length ? est[est.length >> 1] : 0.34;
+    if (pts.length < 30) throw new Error(`wheelParts matched nothing near ${name}`);
+    if (cfg.unsteer) { ax = thinAxis(pts); if (ax[0] < 0) ax = ax.map((v) => -v); }
+    const up = unit([0, 1, 0].map((v, k) => v - ax[1] * ax[k])), fw = cross(ax, up);
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < pts.length; i += 3) [ax, up, fw].forEach((e, k) => { const d = pts[i] * e[0] + pts[i + 1] * e[1] + pts[i + 2] * e[2]; lo[k] = Math.min(lo[k], d); hi[k] = Math.max(hi[k], d); });
+    const mid = lo.map((l, k) => (l + hi[k]) / 2);
+    c = [0, 1, 2].map((k) => ax[k] * mid[0] + up[k] * mid[1] + fw[k] * mid[2]);
+    r = Math.max(hi[1] - lo[1], hi[2] - lo[2]) / 2 + (cfg.rPad ?? 0);
+    const hw = (hi[0] - lo[0]) / 2;
+    inA = -(hw + 0.03); outA = hw + 0.03;
+    wheels.push({ name, sx, ax, up, fw, c, r, inA, outA });
+  } else {
+    r = r0;
+    const near = bounds(parts.map((p) => p.world), (x, y, z) => inQuad(x, z) && Math.hypot(z - cz0, y - r) < r * 0.6 && Math.abs(x - cx0) < 0.3);
+    const outer = sx > 0 ? near.hi[0] : near.lo[0];
+    const width = cfg.wheelWidth ?? 0.34;
+    wheels.push({ name, sx, ax, up: [0, 1, 0], fw: [0, 0, 1], c: [outer - sx * width / 2, r, cz0], r, inA: -width / 2, outA: width / 2 + 0.045 });
   }
-  const near = bounds(parts.map((p) => p.world), (x, y, z) => inQuad(x, z) && Math.hypot(z - cz, y - r) < r * 0.6 && Math.abs(x - cx0) < 0.3);
-  const outer = sx > 0 ? near.hi[0] : near.lo[0];
-  const width = o.width ?? cfg.wheelWidth ?? 0.34;
-  wheels.push({ name, sx, r, cz, outer, inner: outer - sx * width, cx: outer - sx * width / 2 });
 }
-for (const [i, j] of [[0, 1], [2, 3]]) if (!cfg.wheels && cfg.rFront == null) wheels[i].r = wheels[j].r = (wheels[i].r + wheels[j].r) / 2;
-for (const w of wheels) console.log(`${w.name} r=${w.r.toFixed(3)} z=${w.cz.toFixed(3)} x=${w.cx.toFixed(3)} outer=${w.outer.toFixed(3)}`);
+if (partsRe) {
+  // stand the car on its tyres, whatever else hangs lower in the file
+  const ground = Math.min(...wheels.map((w) => w.c[1] - w.r));
+  for (const p of parts) for (let i = 1; i < p.world.length; i += 3) p.world[i] -= ground;
+  for (const w of wheels) w.c[1] -= ground;
+}
+for (const w of wheels) console.log(`${w.name} r=${w.r.toFixed(3)} centre=${w.c.map((v) => v.toFixed(3)).join(',')} axle=${w.ax.map((v) => v.toFixed(3)).join(',')} width=${(w.outA - w.inA).toFixed(3)}`);
 
 const keepRe = cfg.keep ? new RegExp(cfg.keep, 'i') : null;   // materials that always stay on the body (paint)
 const bucketOf = (a, i0, i1, i2, mat) => {
@@ -100,9 +144,9 @@ const bucketOf = (a, i0, i1, i2, mat) => {
     const w = wheels[k], lim = w.r * 1.012;
     let inside = true;
     for (const i of [i0, i1, i2]) {
-      const x = a[i * 3], y = a[i * 3 + 1], z = a[i * 3 + 2];
-      const lat = (x - w.inner) * w.sx;
-      if (lat < 0 || lat > Math.abs(w.outer - w.inner) + 0.045 || Math.hypot(z - w.cz, y - w.r) > lim) { inside = false; break; }
+      const d = [a[i * 3] - w.c[0], a[i * 3 + 1] - w.c[1], a[i * 3 + 2] - w.c[2]];
+      const along = dot(d, w.ax) * w.sx;
+      if (along < w.inA || along > w.outA || Math.hypot(dot(d, w.up), dot(d, w.fw)) > lim) { inside = false; break; }
     }
     if (inside) return k + 1;
   }
@@ -134,13 +178,16 @@ for (const p of parts) {
         ni = g.pos.length / 3;
         remap.set(rk, ni);
         const w = bucket ? wheels[bucket - 1] : null;
-        g.pos.push(world[i * 3] - (w ? w.cx : 0), world[i * 3 + 1] - (w ? w.r : 0), world[i * 3 + 2] - (w ? w.cz : 0));
+        // wheel vertices are stored in the wheel's own frame: x along the axle, origin on it
+        const local = (v) => (w ? [dot(v, w.ax), dot(v, w.up), dot(v, w.fw)] : v);
+        const wp = [world[i * 3], world[i * 3 + 1], world[i * 3 + 2]];
+        g.pos.push(...local(w ? wp.map((v, k) => v - w.c[k]) : wp));
         if (nrm) {
           nrm.getElement(i, tmp);
           // rotation-only approximation of the normal matrix (models here use uniform scale)
           const wx = m[0] * tmp[0] + m[4] * tmp[1] + m[8] * tmp[2], wy = m[1] * tmp[0] + m[5] * tmp[1] + m[9] * tmp[2], wz = m[2] * tmp[0] + m[6] * tmp[1] + m[10] * tmp[2];
           const rx = wx * cy + wz * sy, rz = -wx * sy + wz * cy, len = Math.hypot(rx, wy, rz) || 1;
-          g.nrm.push(rx / len, wy / len, rz / len);
+          g.nrm.push(...local([rx / len, wy / len, rz / len]));
         } else g.nrm.push(0, 1, 0);
         if (uv) { uv.getElement(i, t2); g.uv.push(t2[0], t2[1]); g.hasUv = true; } else g.uv.push(0, 0);
       }
@@ -157,7 +204,7 @@ const buffer = root.listBuffers()[0];
 const names = ['body', ...wheels.map((w) => w.name)];
 const nodes = names.map((name, k) => {
   const node = doc.createNode(name).setMesh(doc.createMesh(name));
-  if (k) node.setTranslation([wheels[k - 1].cx, wheels[k - 1].r, wheels[k - 1].cz]);
+  if (k) node.setTranslation(wheels[k - 1].c);
   scene.addChild(node);
   return node;
 });

@@ -4,10 +4,39 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 export const ROAD_HALF = 7.5;          // half the tarmac width, metres
 export const WALL = ROAD_HALF + 7;     // guard-rail distance from the centre line
 
-const SCALE = 1.4;
-const CONTROL = [
-  [0, 0], [90, 0], [170, -20], [220, -80], [200, -160], [130, -190], [70, -150], [10, -170],
-  [-40, -240], [-130, -250], [-190, -190], [-170, -110], [-100, -80], [-110, -20], [-60, 0],
+// Each track is a closed loop through these points (x, z), scaled to metres.
+// The start line is at the first point, facing the second.
+export const TRACKS = [
+  {
+    id: 'sunset', name: 'Sunset Circuit', scale: 1.4, seed: 20261002,
+    points: [
+      [0, 0], [90, 0], [170, -20], [220, -80], [200, -160], [130, -190], [70, -150], [10, -170],
+      [-40, -240], [-130, -250], [-190, -190], [-170, -110], [-100, -80], [-110, -20], [-60, 0],
+    ],
+  },
+  {
+    id: 'speedway', name: 'Pinewood Speedway', scale: 1.6, seed: 7,
+    points: [
+      [0, 0], [150, 0], [230, -30], [270, -100], [230, -170], [150, -200],
+      [-150, -200], [-230, -170], [-270, -100], [-230, -30], [-150, 0],
+    ],
+  },
+  {
+    id: 'switchback', name: 'Switchback Ridge', scale: 1.3, seed: 99,
+    points: [
+      [0, 0], [100, 0], [160, -20], [180, -80], [140, -120], [60, -110], [20, -150], [60, -200],
+      [150, -210], [200, -260], [160, -320], [60, -320], [-40, -290], [-80, -220], [-60, -140],
+      [-120, -90], [-180, -120], [-220, -60], [-160, 0], [-80, 10],
+    ],
+  },
+  {
+    id: 'grandtour', name: 'Grand Tour', scale: 1.5, seed: 2024,
+    points: [
+      [0, 0], [140, 0], [260, -30], [330, -110], [300, -210], [200, -250], [120, -200], [40, -240],
+      [20, -340], [-80, -400], [-200, -360], [-240, -250], [-170, -170], [-220, -80], [-320, -60],
+      [-360, 40], [-280, 110], [-160, 80], [-80, 10],
+    ],
+  },
 ];
 
 // Small deterministic PRNG so the scenery is identical on every load.
@@ -38,12 +67,10 @@ function speckle(ctx, size, count, rand, shade) {
   }
 }
 
-export function buildTrack(scene, renderer) {
-  const rand = mulberry(20261002);
-
-  // ------------------------------------------------------------ centre line
+// The driving line and everything the simulation needs to know about a track.
+export function trackLine(def) {
   const curve = new THREE.CatmullRomCurve3(
-    CONTROL.map(([x, z]) => new THREE.Vector3(x * SCALE, 0, z * SCALE)), true, 'centripetal',
+    def.points.map(([x, z]) => new THREE.Vector3(x * def.scale, 0, z * def.scale)), true, 'centripetal',
   );
   const length = curve.getLength();
   const N = Math.round(length / 2);
@@ -67,6 +94,15 @@ export function buildTrack(scene, renderer) {
       speedProfile[i] = Math.min(speedProfile[i], Math.sqrt(next * next + 2 * 20 * DS));
     }
   }
+  return { pts, tan, nrm, N, DS, speedProfile, length };
+}
+
+// Builds the track's scenery into one group, so switching tracks is a single add/remove.
+export function buildTrack(renderer, def) {
+  const rand = mulberry(def.seed);
+  const route = trackLine(def);
+  const { pts, tan, nrm, N, DS, length } = route;
+  const group = new THREE.Group();
 
   // A strip that follows the track between two lateral offsets (a = left edge, b = right edge).
   function ribbon(a, b, ya, yb, vScale) {
@@ -97,7 +133,7 @@ export function buildTrack(scene, renderer) {
     new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }),
   );
   ground.receiveShadow = true;
-  scene.add(ground);
+  group.add(ground);
 
   // ------------------------------------------------------------ tarmac
   const roadTex = canvasTexture(1024, (ctx, s) => {
@@ -121,7 +157,7 @@ export function buildTrack(scene, renderer) {
     new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.82, metalness: 0.05 }),
   );
   road.receiveShadow = true;
-  scene.add(road);
+  group.add(road);
 
   const kerbTex = canvasTexture(64, (ctx, s) => {
     ctx.fillStyle = '#e8e8e8';
@@ -133,7 +169,7 @@ export function buildTrack(scene, renderer) {
   for (const [a, b] of [[ROAD_HALF + 1.2, ROAD_HALF], [-ROAD_HALF, -ROAD_HALF - 1.2]]) {
     const kerb = new THREE.Mesh(ribbon(a, b, 0.035, 0.035, 4), kerbMat);
     kerb.receiveShadow = true;
-    scene.add(kerb);
+    group.add(kerb);
   }
 
   // ------------------------------------------------------------ guard rails
@@ -141,7 +177,7 @@ export function buildTrack(scene, renderer) {
   for (const side of [1, -1]) {
     const rail = new THREE.Mesh(ribbon(side * WALL, side * WALL, 0.95, 0.35, 4), railMat);
     rail.castShadow = rail.receiveShadow = true;
-    scene.add(rail);
+    group.add(rail);
   }
   const postGeo = new THREE.BoxGeometry(0.14, 0.9, 0.14).translate(0, 0.45, 0);
   const postCount = Math.floor(N / 2) * 2;
@@ -154,7 +190,7 @@ export function buildTrack(scene, renderer) {
       posts.setMatrixAt(c++, m4);
     }
   }
-  scene.add(posts);
+  group.add(posts);
 
   // ------------------------------------------------------------ street lamps
   const lampEvery = 22;
@@ -179,7 +215,7 @@ export function buildTrack(scene, renderer) {
     poles.setMatrixAt(i, m4); arms.setMatrixAt(i, m4); glows.setMatrixAt(i, m4);
   }
   poles.castShadow = true;
-  scene.add(poles, arms, glows);
+  group.add(poles, arms, glows);
 
   // ------------------------------------------------------------ start / finish
   const checkTex = canvasTexture(256, (ctx, s) => {
@@ -200,7 +236,7 @@ export function buildTrack(scene, renderer) {
   line.position.set(pts[0].x, 0.03, pts[0].z);
   line.rotation.y = startYaw;
   line.receiveShadow = true;
-  scene.add(line);
+  group.add(line);
 
   const gantry = new THREE.Group();
   const steel = new THREE.MeshStandardMaterial({ color: 0x23262c, metalness: 0.85, roughness: 0.35 });
@@ -226,7 +262,7 @@ export function buildTrack(scene, renderer) {
   gantry.add(beam);
   gantry.position.set(pts[0].x, 0, pts[0].z);
   gantry.rotation.y = startYaw;
-  scene.add(gantry);
+  group.add(gantry);
 
   // ------------------------------------------------------------ trees
   const cx = pts.reduce((s, p) => s + p.x, 0) / N, cz = pts.reduce((s, p) => s + p.z, 0) / N;
@@ -238,9 +274,12 @@ export function buildTrack(scene, renderer) {
     }
     return Math.sqrt(best);
   };
+  const box = new THREE.Box3().setFromPoints(pts);
+  const spanX = box.max.x - box.min.x, spanZ = box.max.z - box.min.z;
+  const treeCount = Math.min(1600, Math.round(length * 0.55));
   const spots = [];
-  for (let tries = 0; spots.length < 900 && tries < 20000; tries++) {
-    const x = cx + (rand() - 0.5) * 1100, z = cz + (rand() - 0.5) * 1000;
+  for (let tries = 0; spots.length < treeCount && tries < treeCount * 25; tries++) {
+    const x = cx + (rand() - 0.5) * (spanX + 460), z = cz + (rand() - 0.5) * (spanZ + 460);
     const d = distToTrack(x, z);
     if (d > WALL + 6 && d < 230 && rand() < 1.15 - d / 230) spots.push([x, z]);
   }
@@ -263,19 +302,26 @@ export function buildTrack(scene, renderer) {
     crowns.setColorAt(i, col.setHSL(0.26 + rand() * 0.08, 0.45 + rand() * 0.2, 0.07 + rand() * 0.07));
   });
   trunks.castShadow = crowns.castShadow = true;
-  scene.add(trunks, crowns);
+  group.add(trunks, crowns);
 
   // ------------------------------------------------------------ distant hills
   const hillMat = new THREE.MeshStandardMaterial({ color: 0x39424f, roughness: 1, flatShading: true });
   for (let i = 0; i < 46; i++) {
     const ang = (i / 46) * Math.PI * 2 + rand() * 0.12;
-    const dist = 760 + rand() * 520;
+    const dist = Math.max(760, Math.hypot(spanX, spanZ) / 2 + 420) + rand() * 520;
     const h = 90 + rand() * 230;
     const hill = new THREE.Mesh(new THREE.ConeGeometry(190 + rand() * 230, h, 7, 3), hillMat);
     hill.position.set(cx + Math.cos(ang) * dist, h / 2 - 6, cz + Math.sin(ang) * dist);
     hill.rotation.y = rand() * Math.PI;
-    scene.add(hill);
+    group.add(hill);
   }
 
-  return { pts, tan, nrm, N, DS, speedProfile, length };
+  const dispose = () => group.traverse((o) => {
+    if (!o.isMesh) return;
+    o.geometry.dispose();
+    o.material.map?.dispose();
+    o.material.dispose();
+    if (o.isInstancedMesh) o.dispose();
+  });
+  return { ...route, group, dispose };
 }
