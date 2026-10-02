@@ -61,25 +61,36 @@ addEventListener('resize', () => {
 
 // ---------------------------------------------------------------- sky & light
 
-const SUN_AZIMUTH = THREE.MathUtils.degToRad(112);
-const skySun = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 4), SUN_AZIMUTH);
-// The key light sits a little higher than the visible sun so shadows stay readable.
-const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 13), SUN_AZIMUTH);
+const rad = THREE.MathUtils.degToRad;
+const sunDir = new THREE.Vector3(0, 1, 0);
 
+// Daytime scenes use the analytic sky; night scenes use a plain gradient dome.
 const sky = new Sky();
 sky.scale.setScalar(3500);
-Object.assign(sky.material.uniforms.turbidity, { value: 10 });
-Object.assign(sky.material.uniforms.rayleigh, { value: 3 });
-Object.assign(sky.material.uniforms.mieCoefficient, { value: 0.005 });
-Object.assign(sky.material.uniforms.mieDirectionalG, { value: 0.75 });
-sky.material.uniforms.sunPosition.value.copy(skySun);
 
-// Bake the sky into an environment map so paint and glass reflect the sunset.
-const pmrem = new THREE.PMREMGenerator(renderer);
-const envScene = new THREE.Scene();
-envScene.add(sky);
-scene.environment = pmrem.fromScene(envScene).texture;
-scene.add(sky);
+const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, stars: { value: 0 } },
+  vertexShader: `
+    varying vec3 vDir;
+    void main() {
+      vDir = normalize(position);
+      gl_Position = (projectionMatrix * modelViewMatrix * vec4(position, 1.0)).xyww;   // pinned to the far plane
+    }`,
+  fragmentShader: `
+    uniform vec3 top; uniform vec3 horizon; uniform float stars;
+    varying vec3 vDir;
+    void main() {
+      float h = clamp(vDir.y, 0.0, 1.0);
+      vec3 c = mix(horizon, top, pow(h, 0.42));
+      vec3 cell = floor(normalize(vDir) * 190.0);
+      float n = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+      c += step(0.9987, n) * stars * h;
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+}));
+dome.scale.setScalar(3400);
+dome.frustumCulled = false;
 
 scene.fog = new THREE.FogExp2(0xb98f78, 0.0011);
 
@@ -92,8 +103,158 @@ sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 400;
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.05;
-scene.add(sun, sun.target);
-scene.add(new THREE.HemisphereLight(0x9db4ff, 0x4a3b2c, 0.7));
+const hemi = new THREE.HemisphereLight(0x9db4ff, 0x4a3b2c, 0.7);
+scene.add(sun, sun.target, hemi, sky, dome);
+
+// Reflections come from the sky baked into an environment map. Night scenes add a few
+// coloured panels to that bake so paint and wet tarmac pick up the neon (or lava) around them.
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+let envTarget = null;
+let nightScene = false;
+
+function applyTheme(theme) {
+  const t = theme.sky;
+  nightScene = !!t.night;
+  renderer.toneMappingExposure = theme.exposure;
+  bloom.strength = theme.bloom;
+  scene.fog.color.setHex(theme.fog[0]);
+  scene.fog.density = theme.fog[1];
+  sun.color.setHex(theme.sun[0]);
+  sun.intensity = theme.sun[1];
+  sunDir.setFromSphericalCoords(1, rad(90 - theme.sun[2]), rad(t.az ?? 112));
+  hemi.color.setHex(theme.hemi[0]);
+  hemi.groundColor.setHex(theme.hemi[1]);
+  hemi.intensity = theme.hemi[2];
+
+  sky.visible = !nightScene;
+  dome.visible = nightScene;
+  envScene.clear();
+  if (nightScene) {
+    dome.material.uniforms.top.value.setHex(t.top);
+    dome.material.uniforms.horizon.value.setHex(t.horizon);
+    dome.material.uniforms.stars.value = t.stars;
+    envScene.add(dome);
+    t.glow.forEach((hex, i) => {
+      for (let j = 0; j < 3; j++) {
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(26, 10), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(5), side: THREE.DoubleSide }));
+        const a = (i * 3 + j) * 0.7;
+        panel.position.set(Math.cos(a) * 40, 6 + j * 9, Math.sin(a) * 40);
+        panel.lookAt(0, 4, 0);
+        envScene.add(panel);
+      }
+    });
+  } else {
+    const u = sky.material.uniforms;
+    u.turbidity.value = t.turbidity;
+    u.rayleigh.value = t.rayleigh;
+    u.mieCoefficient.value = t.mie;
+    u.mieDirectionalG.value = t.mieG;
+    u.sunPosition.value.setFromSphericalCoords(1, rad(90 - t.elev), rad(t.az));
+    envScene.add(sky);
+  }
+  envTarget?.dispose();
+  envTarget = pmrem.fromScene(envScene);
+  scene.environment = envTarget.texture;
+  scene.add(sky, dome);   // the bake borrowed whichever one it used
+  setWeather(theme.weather);
+  if (player) player.headlight.visible = nightScene;
+}
+
+// ---------------------------------------------------------------- weather & smoke
+
+// Rain is drawn as short streaks, snow and embers as soft dots. All of them live in a box
+// around the camera and wrap, so a few thousand particles cover the whole track.
+const WEATHER_BOX = 70;
+const dotTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+})();
+const WEATHER = {
+  rain: { count: 2600, fall: -38, drift: 5, streak: 1.1 },
+  snow: { count: 1800, fall: -2.2, drift: 1.2, size: 0.22, color: 0xffffff, blending: THREE.NormalBlending },
+  embers: { count: 700, fall: 2.6, drift: 2.2, size: 0.32, color: new THREE.Color(6, 1.6, 0.2), blending: THREE.AdditiveBlending },
+};
+let weather = null;
+
+function setWeather(kind) {
+  if (weather) {
+    scene.remove(weather.object);
+    weather.object.geometry.dispose();
+    weather.object.material.dispose();
+    weather = null;
+  }
+  const w = WEATHER[kind];
+  if (!w) return;
+  const per = w.streak ? 2 : 1;
+  const base = new Float32Array(w.count * 3);
+  for (let i = 0; i < base.length; i++) base[i] = Math.random() * WEATHER_BOX;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(w.count * per * 3), 3));
+  const object = w.streak
+    ? new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xaab8ff, transparent: true, opacity: 0.35, fog: false }))
+    : new THREE.Points(geo, new THREE.PointsMaterial({ map: dotTex, color: w.color, size: w.size, transparent: true, depthWrite: false, blending: w.blending, fog: false }));
+  object.frustumCulled = false;
+  scene.add(object);
+  weather = { ...w, base, object, time: 0 };
+}
+
+function updateWeather(dt) {
+  if (!weather) return;
+  const { base, object, fall, drift, streak } = weather;
+  weather.time += dt;
+  const pos = object.geometry.attributes.position.array;
+  const half = WEATHER_BOX / 2, cam = camera.position, t = weather.time;
+  const wrapTo = (value, centre) => centre + (((value - centre) % WEATHER_BOX) + WEATHER_BOX * 1.5) % WEATHER_BOX - half;
+  for (let i = 0, o = 0; i < base.length; i += 3) {
+    const x = wrapTo(base[i] + drift * t + Math.sin(base[i + 1] + t) * (streak ? 0 : 0.6), cam.x);
+    const y = wrapTo(base[i + 1] + fall * t, cam.y + half * 0.6);
+    const z = wrapTo(base[i + 2], cam.z);
+    pos[o++] = x; pos[o++] = y; pos[o++] = z;
+    if (streak) { pos[o++] = x - drift * 0.03; pos[o++] = y + streak; pos[o++] = z; }
+  }
+  object.geometry.attributes.position.needsUpdate = true;
+}
+
+// Tyre smoke (or dust, off the road): a small ring buffer of fading puffs.
+const SMOKE_MAX = 90;
+const smoke = (() => {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SMOKE_MAX * 3), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(SMOKE_MAX * 4), 4));
+  const points = new THREE.Points(geo, new THREE.PointsMaterial({ map: dotTex, size: 2.6, vertexColors: true, transparent: true, depthWrite: false }));
+  points.frustumCulled = false;
+  scene.add(points);
+  return { points, life: new Float32Array(SMOKE_MAX), next: 0, clock: 0 };
+})();
+
+function puffSmoke(x, z, dusty) {
+  const i = smoke.next = (smoke.next + 1) % SMOKE_MAX;
+  const pos = smoke.points.geometry.attributes.position.array, c = smoke.points.geometry.attributes.color.array;
+  pos[i * 3] = x + (Math.random() - 0.5) * 0.6; pos[i * 3 + 1] = 0.35; pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.6;
+  const tone = dusty ? [0.5, 0.42, 0.3] : [0.8, 0.8, 0.82];
+  c[i * 4] = tone[0]; c[i * 4 + 1] = tone[1]; c[i * 4 + 2] = tone[2];
+  smoke.life[i] = 1;
+}
+
+function updateSmoke(dt) {
+  const pos = smoke.points.geometry.attributes.position.array, c = smoke.points.geometry.attributes.color.array;
+  for (let i = 0; i < SMOKE_MAX; i++) {
+    if (smoke.life[i] <= 0) continue;
+    smoke.life[i] = Math.max(0, smoke.life[i] - dt * 0.9);
+    pos[i * 3 + 1] += dt * 1.1;
+    c[i * 4 + 3] = smoke.life[i] * 0.4;
+  }
+  smoke.points.geometry.attributes.position.needsUpdate = true;
+  smoke.points.geometry.attributes.color.needsUpdate = true;
+}
 
 // ---------------------------------------------------------------- world
 
@@ -108,6 +269,7 @@ function loadTrack(def) {
   track = buildTrack(renderer, def);
   ({ pts, tan, nrm, N, DS, speedProfile } = track);
   scene.add(track.group);
+  applyTheme(track.theme);
   drawMapBase();
 }
 
@@ -272,10 +434,14 @@ function makeCar() {
   }));
   glow.position.y = 0.05;
   glow.visible = false;
-  root.add(tilt, glow);
+  const headlight = new THREE.SpotLight(0xdfe8ff, 220, 110, 0.55, 0.7, 1.6);
+  headlight.position.set(0, 0.8, 1.6);
+  headlight.target.position.set(0, 0, 30);
+  headlight.visible = false;
+  root.add(tilt, glow, headlight, headlight.target);
   scene.add(root);
   return {
-    root, tilt, glow, visual: null, def: null, token: 0, color: 0xffffff,
+    root, tilt, glow, headlight, visual: null, def: null, token: 0, color: 0xffffff,
     x: 0, z: 0, heading: 0, vx: 0, vz: 0, speed: 0,
     steer: 0, spin: 0, roll: 0, pitch: 0,
     idx: 0, lat: 0, prog: 0, laps: 0,
@@ -399,7 +565,7 @@ const hud = {
   last: $('hud-last'), best: $('hud-best'), speed: $('hud-speed'), banner: $('banner'),
 };
 const overlay = $('overlay'), menu = $('menu'), results = $('results'), sub = $('overlay-sub');
-const menuText = () => `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 rivals · ${(track.length / 1000).toFixed(1)} km of sunset tarmac.`;
+const menuText = () => `${raceLaps} ${raceLaps === 1 ? 'lap' : 'laps'} · 3 rivals · ${(track.length / 1000).toFixed(1)} km of ${trackDef.blurb}.`;
 const nameInput = $('name');
 nameInput.value = localStorage.getItem('sc_name') || '';
 
@@ -642,6 +808,11 @@ function updatePlayer(dt, live) {
 
   p.roll += (clamp(yaw * vF * 0.0028, -0.07, 0.07) - p.roll) * Math.min(1, dt * 6);
   p.pitch += (clamp(-a * 0.0016, -0.04, 0.04) - p.pitch) * Math.min(1, dt * 6);
+  if (Math.abs(vF) > 6 && (onGrass || hand || Math.abs(vL) > 3.5) && (smoke.clock += dt) > 0.035) {
+    smoke.clock = 0;
+    const side = Math.random() < 0.5 ? 0.8 : -0.8;
+    puffSmoke(p.x - fx * 1.5 + fz * side, p.z - fz * 1.5 - fx * side, onGrass);
+  }
   syncCar(p, dt, brake && vF > 1);
 
   if (live) {
@@ -809,6 +980,9 @@ function frame() {
     sun.target.position.set(player.x, 0, player.z);
     sun.position.copy(sun.target.position).addScaledVector(sunDir, 180);
     sky.position.copy(camera.position);
+    dome.position.copy(camera.position);
+    updateWeather(dt);
+    updateSmoke(dt);
 
     if (!hud.root.hidden && (hudTick = (hudTick + 1) % 3) === 0) {
       hud.speed.textContent = Math.round(Math.abs(player.speed) * 3.6);
@@ -843,6 +1017,7 @@ async function boot() {
 
   rivals = [0.9, 0.86, 0.82].map((baseSkill) => Object.assign(makeCar(), { baseSkill }));
   player = makeCar();
+  player.headlight.visible = nightScene;
   cars = [player, ...rivals];
   garage = createGarage({ onPreview: (previewTier, look) => dressCar(player, CARS[previewTier], look) });
   await applySelection();

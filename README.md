@@ -1,6 +1,6 @@
 # Sunset Circuit
 
-A 3D arcade racing game built with [three.js](https://threejs.org/). Four tracks, three rivals, a garage of five cars, and a global fastest-lap leaderboard for each track.
+A 3D arcade racing game built with [three.js](https://threejs.org/). Six tracks, three rivals, a garage of five cars, and a global fastest-lap leaderboard for each track.
 
 **Play:** https://arosario28-ux.github.io/rocketjitll.cpp/
 
@@ -22,12 +22,16 @@ Touch devices get on-screen buttons.
 
 Pick the track and the race length (1, 3, 5 or 10 laps) on the start screen. Prize money scales with the number of laps.
 
-| Track | Length | Character |
+| Track | Length | Scene |
 | --- | --- | --- |
-| Sunset Circuit | 1.6 km | The original mixed layout |
-| Pinewood Speedway | 2.0 km | Fast oval |
-| Switchback Ridge | 2.1 km | Tight and technical |
-| Grand Tour | 3.2 km | Long, flowing lap |
+| Sunset Circuit | 1.6 km | Pine forest at sunset |
+| Neon District | 1.9 km | Street circuit through a rain-soaked neon city at night |
+| Ember Peak | 2.0 km | Lava fields around an erupting volcano |
+| Pinewood Speedway | 2.0 km | Sunlit oval with grandstands |
+| Switchback Ridge | 2.1 km | Snowy mountain pass |
+| Grand Tour | 3.2 km | Desert mesas and cacti |
+
+Each scene has its own sky, lighting, fog, weather (rain, snow or embers) and scenery, all generated in code. Neon District is an original build inspired by the look of [Threejs-Punk Drive](https://threejspunkdrive.vercel.app/); it does not use that game's code or assets.
 
 ## Garage
 
