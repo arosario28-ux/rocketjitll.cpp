@@ -1,6 +1,6 @@
 # Sunset Circuit
 
-A 3D arcade racing game built with [three.js](https://threejs.org/). Six tracks, three rivals, a garage of five cars, and a global fastest-lap leaderboard for each track.
+A 3D arcade racing game built with [three.js](https://threejs.org/). Six tracks, three rivals, a garage of ten cars, player accounts, and a global fastest-lap leaderboard for each track.
 
 **Play:** https://arosario28-ux.github.io/rocketjitll.cpp/
 
@@ -35,15 +35,37 @@ Each scene has its own sky, lighting, fog, weather (rain, snow or embers) and sc
 
 ## Garage
 
-Race results pay credits (more for a win, and more in faster cars). Credits buy four cars above the starter, each a different model with better top speed, acceleration, handling and braking. Rivals get quicker as your car does. Owned cars can be repainted: paint, finish, rims, brake calipers, interior, window tint and underglow. Progress is stored in the browser (`localStorage`).
+Race results pay credits (more for a win, more for longer races, and more in faster cars). Credits buy eight cars above the starter, each a different model with better top speed, acceleration, handling and braking. Rivals get quicker as your car does. Owned cars can be repainted: paint, finish, rims, brake calipers, interior, window tint and underglow, depending on what each model supports.
 
 | Car | Price |
 | --- | --- |
-| Nissan GT-R | starter |
-| Ferrari 458 | 1,200 |
-| Porsche 911 GT3 RS | 3,000 |
-| Lamborghini Huracán EVO | 6,000 |
-| McLaren Spider | 10,000 |
+| Mitsubishi Lancer Evo X | starter |
+| BMW M4 | 700 |
+| Nissan GT-R | 1,500 |
+| Chevrolet Corvette C8 | 2,500 |
+| Ferrari 458 | 4,000 |
+| Porsche 911 GT3 RS | 6,000 |
+| Lamborghini Huracán EVO | 8,500 |
+| McLaren Spider | 11,500 |
+| Bugatti Veyron | 15,000 |
+| Apex F1 | developer accounts only |
+
+The Apex F1 is built in code from three.js primitives (`js/f1.js`) rather than loaded from a file.
+
+## Accounts
+
+Playing as a guest keeps progress in the browser. Signing up with a username and passcode stores it in Supabase instead, so it follows you between devices, and your username is used on the leaderboards.
+
+A developer account owns every car, including the Apex F1. An account becomes a developer account by entering a developer code under "Dev code" after logging in. Codes are stored only as hashes in the `dev_codes` table; to issue a new one, run this in the Supabase SQL editor:
+
+```sql
+insert into public.dev_codes (code_hash)
+values (extensions.crypt('YOUR-NEW-CODE', extensions.gen_salt('bf', 10)));
+```
+
+How it works: the `players`, `player_sessions` and `dev_codes` tables are closed to the public API. The game calls database functions (`register_player`, `login_player`, `get_profile`, `save_progress`, `redeem_dev_code`, `logout_player`) that check the passcode against a bcrypt hash and return a session token. Five wrong passcodes lock an account for a minute.
+
+Limits worth knowing: there is no passcode reset, so a forgotten passcode means a new account. And because the game runs entirely in the browser, credits and purchases are reported by the client; someone determined could edit their own save. The developer flag itself can only be set by the database.
 
 ## How it's built
 
@@ -51,6 +73,8 @@ Race results pay credits (more for a win, and more in faster cars). Credits buy 
 - `js/main.js` — renderer, post-processing (bloom, ACES tone mapping), car physics, rivals, camera, HUD.
 - `js/track.js` — the track layouts (each a closed spline through a list of points) and the code that generates road, kerbs, guard rails, lamps, trees and hills for whichever one is selected.
 - `js/garage.js` — the car list and stats, saved progress, and the garage screen.
+- `js/account.js` — sign-up, login and progress sync against Supabase.
+- `js/f1.js` — the developer-only single-seater, modelled in code.
 - `js/leaderboard.js` — reads and writes lap times, per track, in a Supabase table (`lap_times`) using the project's publishable key. Row level security allows reading and inserting only.
 - `tools/build-car.mjs` — the script that prepared the files in `assets/cars/`. It rescales each source model, splits the wheels off so they can spin and steer, merges geometry per material, simplifies it and compresses it. It needs Node with `@gltf-transform/cli` installed; the game itself does not.
 
@@ -66,6 +90,9 @@ Then open http://localhost:8000.
 
 The car models are from Sketchfab, used under their Creative Commons licences. Each was modified for this game with `tools/build-car.mjs` (rescaled, wheels separated, simplified, textures reduced, recompressed).
 
+- [Mitsubishi Lancer evo X (2016)](https://sketchfab.com/WarEntertainment) and [BMW M4 [Realistic Free]](https://sketchfab.com/WarEntertainment) by WARENTERTAINMENT, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+- [2019 Chevrolet Corvette C8 Stingray](https://sketchfab.com/Hari31) by Hari, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
+- [Bugatti Veyron fully rigged](https://sketchfab.com/matikassa2) by Eyasu Biyaylgn, [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - [Nissan Skyline GTR r35](https://sketchfab.com/3d-models/nissan-skyline-gtr-r35-7b142ea3376e4811a326256c59bbc7a2) by [Black Snow](https://sketchfab.com/BlackSnow02), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)
 - Ferrari 458 Italia by [vicent091036](https://sketchfab.com/vicent091036), as distributed with the [three.js examples](https://threejs.org/examples/#webgl_materials_car)
 - [Porsche 911 GT3 RS Snow Edition](https://sketchfab.com/3d-models/porsche-911-gt3-rs-snow-edition-6f44b99606e94753ae83a75ada3ba3c8) by [Drifter Models](https://sketchfab.com/Golden-Models), [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/)

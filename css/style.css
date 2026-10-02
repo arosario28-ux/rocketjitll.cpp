@@ -170,6 +170,56 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
 #start:hover, #g-action:hover:not(:disabled) { filter: brightness(1.08); }
 #g-action:disabled { background: rgba(255, 255, 255, .14); color: rgba(255, 255, 255, .7); cursor: default; }
 
+/* ---------- Accounts ---------- */
+
+.link {
+  margin-top: 8px;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: #ffb37a;
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#acct-form, #acct-devform { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+#acct-form input, #acct-devform input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+  color: #fff;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 10px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+#acct-form input:focus, #acct-devform input:focus { border-color: #ff8a3c; }
+.acct-buttons { display: flex; gap: 8px; flex: 1 1 100%; }
+.acct-buttons button, #acct-redeem {
+  flex: 1;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  color: #fff;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .28);
+  border-radius: 10px;
+  cursor: pointer;
+}
+#acct-redeem { flex: none; }
+.acct-buttons button:hover, #acct-redeem:hover { background: rgba(255, 255, 255, .2); }
+#acct-user-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 15px; }
+#acct-user-row .link { margin-top: 0; }
+.badge { padding: 2px 7px; font-size: 11px; font-weight: 800; letter-spacing: .1em; color: #16100a; background: #ff8a3c; border-radius: 6px; }
+#acct-msg { min-height: 18px; margin: 6px 0 0; font-size: 13px; color: #ffb37a; }
+
 /* ---------- Track and lap pickers ---------- */
 
 .pick { display: flex; align-items: center; gap: 10px; margin-top: 12px; }

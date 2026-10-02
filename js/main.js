@@ -9,6 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { buildTrack, ROAD_HALF, WALL, TRACKS } from './track.js';
 import { fetchBoard, submitLap } from './leaderboard.js';
 import { CARS, ROLL_DRAG, AIR_DRAG, createGarage, prizeFor, rivalLook, terminalSpeed } from './garage.js';
+import { account } from './account.js';
 
 const LAP_CHOICES = [1, 3, 5, 10];
 const WHEELBASE = 2.6;
@@ -304,7 +305,8 @@ let pending = 0;   // car models still loading
 // nodes centred on their axles, nose toward +z, tyres resting on y = 0.
 function loadModel(def) {
   if (!modelCache.has(def.id)) {
-    modelCache.set(def.id, gltfLoader.loadAsync(def.file).then((gltf) => gltf.scene, (err) => {
+    const loading = def.build ? Promise.resolve().then(def.build) : gltfLoader.loadAsync(def.file).then((gltf) => gltf.scene);
+    modelCache.set(def.id, loading.catch((err) => {
       console.warn(`${def.name} failed to load, using a stand-in.`, err);
       return fallbackCarModel(def);
     }));
@@ -483,10 +485,17 @@ const KEYS = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
   ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', Space: 'hand',
 };
-const typing = () => document.activeElement === $('name');
+const typing = () => document.activeElement?.tagName === 'INPUT';
 
 addEventListener('keydown', (e) => {
-  if (typing()) { if (e.code === 'Enter') startRace(); return; }
+  if (typing()) {
+    if (e.code !== 'Enter') return;
+    const id = document.activeElement.id;
+    if (id === 'name') startRace();
+    else if (id === 'acct-code') redeemCode();
+    else signIn('login');
+    return;
+  }
   if (state === 'garage') {
     if (e.code === 'ArrowLeft') garage.step(-1);
     else if (e.code === 'ArrowRight') garage.step(1);
@@ -554,7 +563,7 @@ let state = 'loading';          // loading | menu | garage | countdown | race | 
 let camMode = 0;                // 0 chase, 1 bonnet
 let player, rivals = [], cars = [];
 let garage;
-let spec = CARS[0], tier = 0;                 // the car the player races, and how far up the range it is
+let spec = CARS[0];                           // the car the player races
 const rivalPace = { corner: 1, top: 70 };     // rivals scale with the player's car
 let raceClock = 0, lapStart = 0, lastLap = null, raceBest = null, countdown = 0;
 let raceLaps = 3;
@@ -578,7 +587,7 @@ function resetGrid() {
 function startRace() {
   if (state === 'loading' || state === 'countdown' || state === 'garage' || pending) return;
   localStorage.setItem('sc_name', nameInput.value.trim());
-  nameInput.blur();
+  document.activeElement?.blur();
   audio.start();
   resetGrid();
   raceClock = lapStart = 0;
@@ -603,7 +612,7 @@ function finishRace() {
   placeEl.className = 'place';
   placeEl.textContent = `${place}${suffix} place`;
   const dl = document.createElement('dl');
-  const prize = prizeFor(place, tier, raceLaps);
+  const prize = prizeFor(place, spec.level, raceLaps);
   garage.addCredits(prize);
   showWallet();
   for (const [k, v] of [['Race time', fmt(raceClock * 1000)], ['Best lap', fmt(raceBest)], ['Winnings', `+${garage.format(prize)}`]]) {
@@ -618,8 +627,48 @@ function finishRace() {
   overlay.hidden = false;
   touchUI.hidden = true;
 
-  const name = nameInput.value.trim();
+  const name = account.current?.username || nameInput.value.trim();
   if (name && raceBest && !TEST) submitLap(name, raceBest, trackDef.id).then(refreshBoard);
+}
+
+// ---- accounts
+
+function showAccount(message = '') {
+  const me = account.current;
+  $('acct-guest').hidden = !!me;
+  $('acct-user-row').hidden = !me;
+  if (me) {
+    $('acct-name').textContent = me.username;
+    $('acct-dev').hidden = !me.isDev;
+    $('acct-devbtn').hidden = me.isDev;
+    $('acct-devform').hidden = true;
+  }
+  $('acct-msg').textContent = message;
+}
+
+// Points the garage at this player's progress (or the guest's, for null) and puts their car on track.
+function useAccount(me, message) {
+  garage.setAccount(me);
+  showAccount(message);
+  return applySelection();
+}
+
+async function signIn(action) {
+  $('acct-msg').textContent = 'Working…';
+  const reply = await account[action]($('acct-user').value.trim(), $('acct-pass').value);
+  $('acct-pass').value = '';
+  if (reply.error) { $('acct-msg').textContent = reply.error; return; }
+  document.activeElement?.blur();
+  useAccount(reply, action === 'register' ? 'Account created.' : '');
+}
+
+async function redeemCode() {
+  $('acct-msg').textContent = 'Working…';
+  const reply = await account.redeemDevCode($('acct-code').value.trim());
+  $('acct-code').value = '';
+  if (reply.error) { $('acct-msg').textContent = reply.error; return; }
+  document.activeElement?.blur();
+  useAccount(account.current, 'Developer access unlocked: every car is yours.');
 }
 
 function showWallet() {
@@ -630,15 +679,16 @@ function showWallet() {
 function applySelection() {
   const sel = garage.selected();
   spec = sel.car;
-  tier = sel.tier;
   rivalPace.corner = Math.sqrt(spec.grip / CARS[0].grip);
   rivalPace.top = terminalSpeed(spec) * 0.97;
   showWallet();
+  // rivals drive what the player drives, except the developer car, which stays exclusive
+  const rivalCar = spec.devOnly ? CARS.filter((c) => !c.devOnly).at(-1) : spec;
   return Promise.all([
     dressCar(player, spec, sel.look),
     ...rivals.map((r, i) => {
-      r.skill = r.baseSkill + 0.012 * tier;
-      return dressCar(r, spec, rivalLook(RIVAL_COLORS[i]));
+      r.skill = r.baseSkill + 0.05 * spec.level;
+      return dressCar(r, rivalCar, rivalLook(RIVAL_COLORS[i]));
     }),
   ]);
 }
@@ -1019,7 +1069,18 @@ async function boot() {
   player = makeCar();
   player.headlight.visible = nightScene;
   cars = [player, ...rivals];
-  garage = createGarage({ onPreview: (previewTier, look) => dressCar(player, CARS[previewTier], look) });
+  garage = createGarage({
+    onPreview: (car, look) => dressCar(player, car, look),
+    onSave: (save) => account.queueSave(save),
+  });
+  garage.setAccount(await account.resume());
+  showAccount();
+  $('acct-open').addEventListener('click', () => { $('acct-form').hidden = false; $('acct-open').hidden = true; $('acct-user').focus(); });
+  $('acct-login').addEventListener('click', () => signIn('login'));
+  $('acct-signup').addEventListener('click', () => signIn('register'));
+  $('acct-logout').addEventListener('click', () => { account.logout(); useAccount(null); });
+  $('acct-devbtn').addEventListener('click', () => { $('acct-devform').hidden = false; $('acct-code').focus(); });
+  $('acct-redeem').addEventListener('click', redeemCode);
   await applySelection();
   resetGrid();
 

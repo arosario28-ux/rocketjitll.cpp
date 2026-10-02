@@ -52,10 +52,31 @@
       <div id="results" hidden></div>
 
       <div id="menu" hidden>
-        <label class="name-field">
-          Driver name
-          <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Your name">
-        </label>
+        <div id="acct-guest">
+          <label class="name-field">
+            Driver name
+            <input id="name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Your name">
+          </label>
+          <button id="acct-open" class="link">Log in or sign up to keep your cars</button>
+          <div id="acct-form" hidden>
+            <input id="acct-user" maxlength="16" autocomplete="username" spellcheck="false" placeholder="Username">
+            <input id="acct-pass" type="password" maxlength="64" autocomplete="current-password" placeholder="Passcode">
+            <div class="acct-buttons">
+              <button id="acct-login">LOG IN</button>
+              <button id="acct-signup">SIGN UP</button>
+            </div>
+          </div>
+        </div>
+        <div id="acct-user-row" hidden>
+          <span>Signed in as <b id="acct-name"></b> <span id="acct-dev" class="badge" hidden>DEV</span></span>
+          <button id="acct-devbtn" class="link">Dev code</button>
+          <button id="acct-logout" class="link">Log out</button>
+          <div id="acct-devform" hidden>
+            <input id="acct-code" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Developer code">
+            <button id="acct-redeem">UNLOCK</button>
+          </div>
+        </div>
+        <p id="acct-msg" role="status"></p>
         <div class="pick">
           <span class="pick-label">Track</span>
           <button id="track-prev" aria-label="Previous track">◀</button>

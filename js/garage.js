@@ -1,34 +1,62 @@
 // Car catalogue, the player's saved progress (credits, owned cars, paint jobs),
 // and the garage screen where cars are bought, selected and customised.
-// Progress lives in localStorage, so it is per browser.
+// Progress is kept in localStorage, and mirrored to the player's account when signed in.
+
+import { buildF1 } from './f1.js';
 
 // Resistance terms shared with the physics in main.js.
 export const ROLL_DRAG = 0.5;
 export const AIR_DRAG = 0.0007;
 
-// Ordered by tier. top = m/s the engine pulls toward, accel/grip/brake = m/s^2.
-// `mats` names the materials in each model file that the garage is allowed to recolour;
-// a car without an entry for a part simply doesn't offer that option.
+// Stats come from a car's level: 0 is the starter, 1 the fastest car money can buy.
+// top = m/s the engine pulls toward, accel/grip/brake = m/s^2.
+const stats = (level) => ({ level, top: 78 + 12 * level, accel: 15 + 4 * level, grip: 25 + 4.8 * level, brake: 32 + 8 * level });
+
+// Ordered slowest to fastest. `mats` names the materials in each model that the garage may
+// recolour; a car without an entry for a part simply doesn't offer that option.
+// `file` is a GLB in the shared layout (see tools/build-car.mjs); `build` makes the model in code.
 export const CARS = [
   {
-    id: 'strada', name: 'Nissan GT-R', file: 'assets/cars/gtr.glb', price: 0, top: 78, accel: 15, grip: 25, brake: 32, paint: 9,
+    id: 'evo', name: 'Mitsubishi Lancer Evo X', file: 'assets/cars/evo.glb', price: 0, paint: 5, ...stats(0),
+    mats: { paint: ['material_0'], rims: ['material_18'], glass: ['material_34', 'material_30'] },
+  },
+  {
+    id: 'm4', name: 'BMW M4', file: 'assets/cars/m4.glb', price: 700, paint: 6, ...stats(0.125),
+    mats: { paint: ['Material_692'], rims: ['Material_753'], caliper: ['Material_773'], glass: ['Material_775', 'Material_699'] },
+  },
+  {
+    id: 'strada', name: 'Nissan GT-R', file: 'assets/cars/gtr.glb', price: 1500, paint: 9, ...stats(0.25),
     mats: { paint: ['r35_paint'], rims: ['r35_wheel_05a'], caliper: ['amdb11_caliper.002'], interior: ['r35_leather'], glass: ['r35_glass', 'r35_glass.001'], tail: ['r35_taillight_2017'] },
   },
   {
-    id: 'veloce', name: 'Ferrari 458', file: 'assets/cars/ferrari.glb', price: 1200, top: 81, accel: 16, grip: 26.2, brake: 34, paint: 0,
+    id: 'c8', name: 'Chevrolet Corvette C8', file: 'assets/cars/c8.glb', price: 2500, paint: 2, ...stats(0.375),
+    mats: { paint: ['Body_Color'], rims: ['material'], glass: ['Windshield', 'Other_Glasses_than_Windshield'] },
+  },
+  {
+    id: 'veloce', name: 'Ferrari 458', file: 'assets/cars/ferrari.glb', price: 4000, paint: 0, ...stats(0.5),
     mats: { paint: ['Body_Color'], rims: ['metal_gray'], interior: ['Leather'], glass: ['Glass_Gray'], tail: ['Taillight_Glass'] },
   },
   {
-    id: 'corsa', name: 'Porsche 911 GT3 RS', file: 'assets/cars/gt3rs.glb', price: 3000, top: 84, accel: 17, grip: 27.4, brake: 36, paint: 8,
+    id: 'corsa', name: 'Porsche 911 GT3 RS', file: 'assets/cars/gt3rs.glb', price: 6000, paint: 8, ...stats(0.625),
     mats: { paint: ['lens_3'], rims: ['lens_16'], caliper: ['lens_20'], glass: ['lens_8', 'lens_59', 'lens_77'] },
   },
   {
-    id: 'furia', name: 'Lamborghini Huracán EVO', file: 'assets/cars/huracan.glb', price: 6000, top: 87, accel: 18, grip: 28.6, brake: 38, paint: 1,
+    id: 'furia', name: 'Lamborghini Huracán EVO', file: 'assets/cars/huracan.glb', price: 8500, paint: 1, ...stats(0.75),
     mats: { paint: ['Huracan_EVO_Paint'], rims: ['Gloss_Black', 'Chrome'], caliper: ['Caliper_Color'], interior: ['Meshesleatherdarkdif1_diff'], glass: ['Glass_Parts'], tail: ['Red_Glass'] },
   },
   {
-    id: 'apex', name: 'McLaren Spider', file: 'assets/cars/mclaren.glb', price: 10000, top: 90, accel: 19, grip: 29.8, brake: 40, paint: 5,
+    id: 'apex', name: 'McLaren Spider', file: 'assets/cars/mclaren.glb', price: 11500, paint: 7, ...stats(0.875),
     mats: { paint: ['Primary_Paint'], rims: ['Wheel_1A'], interior: ['Suede_BMP'], glass: ['Glass_Full'], tail: ['Brake_Light'] },
+  },
+  {
+    id: 'veyron', name: 'Bugatti Veyron', file: 'assets/cars/veyron.glb', price: 15000, paint: 0, ...stats(1),
+    mats: { paint: ['secondary'], rims: ['wheel_rf.1'], glass: ['glass.001'] },
+  },
+  {
+    // Not for sale: only developer accounts see it.
+    id: 'f1', name: 'Apex F1', build: buildF1, devOnly: true, price: 0, paint: 0,
+    level: 1.3, top: 104, accel: 26, grip: 37, brake: 52,
+    mats: { paint: ['f1_paint'], rims: ['f1_rim'], tail: ['f1_tail'] },
   },
 ];
 
@@ -44,7 +72,7 @@ const OPTIONS = [
   { key: 'paint', label: 'Paint', colors: [0xc8102e, 0xff5a1f, 0xf2c200, 0x2bb54a, 0x0f6b4f, 0x1463ff, 0x0b1f4d, 0x7a2bd6, 0xe9edf2, 0x8a8f98, 0x101114, 0xff4fa3] },
   { key: 'finish', label: 'Finish', names: FINISHES.map((f) => f.name) },
   { key: 'rims', label: 'Rims', part: 'rims', names: ['Stock'], colors: [0xffffff, 0x6b7078, 0x0c0c0e, 0xc9a24a, 0x8a5a33, 0xc8102e, 0x1463ff] },
-  { key: 'caliper', label: 'Brakes', part: 'caliper', names: ['Stock'], colors: [ 0xd11a1a, 0xf2c200, 0x1463ff, 0x2bb54a, 0xff7a1f] },
+  { key: 'caliper', label: 'Brakes', part: 'caliper', names: ['Stock'], colors: [0xd11a1a, 0xf2c200, 0x1463ff, 0x2bb54a, 0xff7a1f] },
   { key: 'interior', label: 'Interior', part: 'interior', names: ['Stock'], colors: [0x28282b, 0xb08a5a, 0x7a1c1c, 0xd9cfbd, 0x1d2f55] },
   { key: 'tint', label: 'Windows', part: 'glass', names: TINTS.map((t) => t.name) },
   { key: 'glow', label: 'Underglow', names: ['Off'], colors: [0x2ad4ff, 0xff2bd6, 0x39ff6a, 0xff7a1f, 0xffffff, 0x8a4dff] },
@@ -54,7 +82,7 @@ const DEFAULT_LOOK = { paint: 0, finish: 1, rims: 0, caliper: 0, interior: 0, ti
 
 const PRIZES = [1000, 400, 200, 100];
 // Prizes are quoted for a three-lap race and scale with distance, so short races can't be farmed.
-export const prizeFor = (place, tier, laps) => Math.round(PRIZES[place - 1] * (1 + 0.25 * tier) * laps / 3);
+export const prizeFor = (place, level, laps) => Math.round(PRIZES[place - 1] * (1 + level) * laps / 3);
 
 // Speed where engine pull and drag balance: what the car actually reaches on a long straight.
 export function terminalSpeed(car) {
@@ -77,20 +105,22 @@ function resolveLook(look) {
 
 export const rivalLook = (paint) => ({ ...resolveLook(DEFAULT_LOOK), paint });
 
-const SAVE_KEY = 'sc_save';
+const GUEST_KEY = 'sc_save';
 
-function loadSave() {
+// Builds a valid save out of whatever was stored, dropping anything that doesn't belong.
+function cleanSave(raw) {
   const save = { credits: 0, owned: [CARS[0].id], selected: CARS[0].id, looks: {} };
-  try {
-    const raw = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (raw && typeof raw === 'object') {
-      if (Number.isFinite(raw.credits)) save.credits = Math.max(0, raw.credits);
-      if (Array.isArray(raw.owned)) for (const id of raw.owned) if (CARS.some((c) => c.id === id) && !save.owned.includes(id)) save.owned.push(id);
-      if (save.owned.includes(raw.selected)) save.selected = raw.selected;
-      if (raw.looks && typeof raw.looks === 'object') save.looks = raw.looks;
-    }
-  } catch { /* corrupt or blocked storage: start fresh */ }
+  if (raw && typeof raw === 'object') {
+    if (Number.isFinite(raw.credits)) save.credits = Math.max(0, raw.credits);
+    if (Array.isArray(raw.owned)) for (const id of raw.owned) if (CARS.some((c) => c.id === id) && !save.owned.includes(id)) save.owned.push(id);
+    if (CARS.some((c) => c.id === raw.selected)) save.selected = raw.selected;
+    if (raw.looks && typeof raw.looks === 'object') save.looks = raw.looks;
+  }
   return save;
+}
+
+function readLocal(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
 
 const cr = (n) => `${Math.round(n).toLocaleString('en-US')} CR`;
@@ -103,21 +133,30 @@ function make(tag, className, text) {
   return node;
 }
 
-export function createGarage({ onPreview }) {
-  const save = loadSave();
+// onPreview(car, look) shows a car on screen; onSave(save) is called whenever progress changes.
+export function createGarage({ onPreview, onSave }) {
+  let key = GUEST_KEY;
+  let isDev = false;
+  let save = cleanSave(readLocal(key));
   const $ = (id) => document.getElementById(id);
   const ui = {
     root: $('garage'), credits: $('g-credits'), name: $('g-name'), tag: $('g-tag'),
     stats: $('g-stats'), action: $('g-action'), custom: $('g-custom'),
   };
-  let view = CARS.findIndex((c) => c.id === save.selected);
+  let view = 0;   // index into cars()
 
-  const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* storage blocked */ } };
-  const selectedTier = () => CARS.findIndex((c) => c.id === save.selected);
-  const owns = (tier) => save.owned.includes(CARS[tier].id);
+  const cars = () => CARS.filter((c) => !c.devOnly || isDev);
+  const owns = (car) => isDev || (!car.devOnly && save.owned.includes(car.id));
+  const selectedCar = () => {
+    const car = CARS.find((c) => c.id === save.selected);
+    return car && owns(car) ? car : CARS[0];
+  };
+  const persist = () => {
+    try { localStorage.setItem(key, JSON.stringify(save)); } catch { /* storage blocked */ }
+    onSave?.(save);
+  };
 
-  function lookOf(tier) {
-    const car = CARS[tier];
+  function lookOf(car) {
     const look = { ...DEFAULT_LOOK, paint: car.paint, ...save.looks[car.id] };
     for (const opt of OPTIONS) {
       const count = (opt.names?.length || 0) + (opt.colors?.length || 0);
@@ -134,8 +173,8 @@ export function createGarage({ onPreview }) {
   ];
 
   function renderStats(car) {
-    const current = CARS[selectedTier()];
-    const best = CARS[CARS.length - 1];
+    const current = selectedCar();
+    const best = cars().at(-1);
     ui.stats.replaceChildren();
     for (const stat of STATS) {
       const v = stat.value(car), base = stat.value(current);
@@ -156,12 +195,12 @@ export function createGarage({ onPreview }) {
     }
   }
 
-  function renderCustom(tier) {
+  function renderCustom(car) {
     ui.custom.replaceChildren();
-    if (!owns(tier)) return;
-    const look = lookOf(tier);
+    if (!owns(car)) return;
+    const look = lookOf(car);
     for (const opt of OPTIONS) {
-      if (opt.part && !CARS[tier].mats[opt.part]) continue;
+      if (opt.part && !car.mats[opt.part]) continue;
       const row = make('div', 'opt-row');
       row.append(make('span', 'opt-label', opt.label));
       const choices = make('div', 'choices');
@@ -169,7 +208,7 @@ export function createGarage({ onPreview }) {
         node.type = 'button';
         if (look[opt.key] === index) node.classList.add('on');
         node.addEventListener('click', () => {
-          save.looks[CARS[tier].id] = { ...look, [opt.key]: index };
+          save.looks[car.id] = { ...look, [opt.key]: index };
           persist();
           render();
         });
@@ -188,30 +227,31 @@ export function createGarage({ onPreview }) {
   }
 
   function render() {
-    const car = CARS[view];
+    const list = cars();
+    const car = list[view];
     ui.credits.textContent = cr(save.credits);
     ui.name.textContent = car.name;
-    ui.tag.textContent = `Car ${view + 1} of ${CARS.length} · ${view === 0 ? 'Starter' : cr(car.price)} · Rivals level ${view + 1}`;
+    const cost = car.devOnly ? 'Developers only' : car === CARS[0] ? 'Starter' : cr(car.price);
+    ui.tag.textContent = `Car ${view + 1} of ${list.length} · ${cost} · Rivals level ${Math.round(car.level * 8) + 1}`;
     renderStats(car);
 
     const btn = ui.action;
     btn.disabled = false;
-    if (view === selectedTier()) { btn.textContent = 'SELECTED'; btn.disabled = true; }
-    else if (owns(view)) btn.textContent = 'SELECT THIS CAR';
+    if (car === selectedCar()) { btn.textContent = 'SELECTED'; btn.disabled = true; }
+    else if (owns(car)) btn.textContent = 'SELECT THIS CAR';
     else if (save.credits >= car.price) btn.textContent = `BUY · ${cr(car.price)}`;
     else { btn.textContent = `NEED ${cr(car.price - save.credits)} MORE`; btn.disabled = true; }
 
-    renderCustom(view);
+    renderCustom(car);
     ui.root.classList.add('busy');
-    const shown = view;
-    Promise.resolve(onPreview(view, resolveLook(lookOf(view)))).finally(() => {
-      if (shown === view) ui.root.classList.remove('busy');
+    Promise.resolve(onPreview(car, resolveLook(lookOf(car)))).finally(() => {
+      if (cars()[view] === car) ui.root.classList.remove('busy');
     });
   }
 
   ui.action.addEventListener('click', () => {
-    const car = CARS[view];
-    if (!owns(view)) {
+    const car = cars()[view];
+    if (!owns(car)) {
       if (save.credits < car.price) return;
       save.credits -= car.price;
       save.owned.push(car.id);
@@ -225,14 +265,29 @@ export function createGarage({ onPreview }) {
     get credits() { return save.credits; },
     get isOpen() { return !ui.root.hidden; },
     selected() {
-      const tier = selectedTier();
-      return { tier, car: CARS[tier], look: resolveLook(lookOf(tier)) };
+      const car = selectedCar();
+      return { car, look: resolveLook(lookOf(car)) };
     },
     addCredits(n) { save.credits += n; persist(); },
-    step(d) { view = (view + d + CARS.length) % CARS.length; render(); },
-    open() { view = selectedTier(); ui.root.hidden = false; render(); },
+    step(d) { const n = cars().length; view = (view + d + n) % n; render(); },
+    open() { view = Math.max(0, cars().indexOf(selectedCar())); ui.root.hidden = false; render(); },
     close() { ui.root.hidden = true; },
     format: cr,
+
+    // Switches whose progress the garage is showing. `account` is { username, isDev, save } or
+    // null for a guest. An account that has never saved starts from the guest's progress.
+    setAccount(account) {
+      isDev = !!account?.isDev;
+      if (!account) {
+        key = GUEST_KEY;
+        save = cleanSave(readLocal(key));
+        return;
+      }
+      key = `sc_save_${account.username.toLowerCase()}`;
+      const remote = account.save && Object.keys(account.save).length ? account.save : null;
+      save = cleanSave(remote || readLocal(key) || readLocal(GUEST_KEY));
+      persist();
+    },
   };
   $('g-prev').addEventListener('click', () => garage.step(-1));
   $('g-next').addEventListener('click', () => garage.step(1));
