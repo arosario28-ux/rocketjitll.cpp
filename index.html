@@ -30,6 +30,7 @@
     </div>
     <canvas id="minimap" width="200" height="200"></canvas>
     <div class="speedo"><span id="hud-speed">0</span><small>km/h</small></div>
+    <div id="lights" hidden><i></i><i></i><i></i><i></i><i></i></div>
     <div id="banner" hidden></div>
     <button id="pause-btn" aria-label="Pause">❚❚</button>
   </div>
@@ -141,7 +142,8 @@
       <div class="dock-go">
         <button id="start">START RACE</button>
         <div class="online-row">
-          <button id="online-btn">ONLINE 1 v 1</button>
+          <button id="ta-btn">TIME ATTACK</button>
+          <button id="online-btn">ONLINE RACE</button>
           <span id="online-status" role="status"></span>
         </div>
       </div>

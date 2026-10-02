@@ -296,7 +296,7 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
 #online-status { font-size: 13px; color: #ffb37a; }
 #wallet, #g-credits { font-weight: 700; font-variant-numeric: tabular-nums; color: #ffb37a; }
 
-#open-garage, #online-btn, #g-back, #g-prev, #g-next {
+#open-garage, #online-btn, #ta-btn, #g-back, #g-prev, #g-next {
   padding: 10px 16px;
   font: inherit;
   font-size: 13px;
@@ -308,7 +308,7 @@ h1 em { color: #ff8a3c; font-style: inherit; display: block; }
   border-radius: 10px;
   cursor: pointer;
 }
-#open-garage:hover, #online-btn:hover, #g-back:hover, #g-prev:hover, #g-next:hover { background: rgba(255, 255, 255, .2); }
+#open-garage:hover, #online-btn:hover, #ta-btn:hover, #g-back:hover, #g-prev:hover, #g-next:hover { background: rgba(255, 255, 255, .2); }
 
 .g-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .g-car { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -570,3 +570,8 @@ kbd {
 .gfx h2 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; opacity: .7; }
 #quality-now { float: right; letter-spacing: .04em; text-transform: none; color: #ffb37a; opacity: 1; }
 .gfx .chip { padding: 4px 9px; }
+
+/* start lights, mirrored from the gantry */
+#lights { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; padding: 10px 14px; background: rgba(10, 12, 18, .7); border-radius: 12px; }
+#lights i { width: 26px; height: 26px; border-radius: 50%; background: #2a0808; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .5); }
+#lights i.on { background: #ff2a1a; box-shadow: 0 0 18px #ff2a1a, inset 0 0 0 2px rgba(0, 0, 0, .2); }

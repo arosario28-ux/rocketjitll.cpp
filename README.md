@@ -50,11 +50,15 @@ Every owned car can be upgraded in the garage, one stage at a time: Stock → St
 
 Rivals are scaled from your car's upgraded figures, so they keep pace.
 
-## Online head-to-head
+## Time Attack
 
-"Online 1 v 1" on the start screen pairs you with another player who is searching. Each player races the car they have selected in their own garage, on the track and lap count chosen by whichever of the two becomes host. Each player is timed from their own green light, so the lower race time wins regardless of connection speed. Winning pays the first-place prize, losing the second-place prize.
+"Time Attack" on the start screen is a separate mode: no rivals, endless laps from a rolling start, and a see-through ghost of your best lap on that track to chase. Each lap shows the gap to your best, and a new best is saved (with its ghost) in the browser and sent to the leaderboard. Leave through the pause menu.
 
-It runs over Supabase Realtime with no game server (`js/online.js`): waiting players sit in a shared presence channel and pair off, then each pair trades car positions about ten times a second on a private channel. Every player simulates only their own car.
+## Online races
+
+"Online Race" on the start screen puts you on a grid with up to three other players who are searching. The first player in line hosts: the race starts once four have joined, or a few seconds after a second player appears. Each player races the car they have selected in their own garage, on the host's track and lap count. Each player is timed from their own green light, so the finishing order is by race time regardless of connection speed, and prizes follow that order.
+
+It runs over Supabase Realtime with no game server (`js/online.js`): waiting players sit in a shared presence channel, then the group trades car positions about ten times a second on a private channel. Every player simulates only their own car.
 
 ## Garage
 
@@ -111,6 +115,8 @@ python3 -m http.server 8000
 Then open http://localhost:8000.
 
 ## Credits
+
+Engine, tyre-squeal and impact sounds are from [pmndrs/racing-game](https://github.com/pmndrs/racing-game) (MIT). One recorded engine loop is shared by every car and pitched and coloured per engine type.
 
 Trees, grass, bushes, rocks, palms and cacti are models from the [Nature Kit](https://kenney.nl/assets/nature-kit) by Kenney (CC0), recoloured in code. Hills, buildings and the rest of the scenery are generated.
 

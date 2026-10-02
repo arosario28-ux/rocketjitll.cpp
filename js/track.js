@@ -253,9 +253,24 @@ export function trackLine(def) {
       speedProfile[i] = Math.min(speedProfile[i], Math.sqrt(next * next + 2 * 20 * DS));
     }
   }
+  // The line rivals like to drive: toward the inside of each bend, smoothed so they flow from
+  // one corner to the next. Positive is left of centre.
+  const bend = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const a = tan[(i + N - 3) % N], b = tan[(i + 3) % N];
+    const kappa = Math.acos(THREE.MathUtils.clamp(a.dot(b), -1, 1)) / (6 * DS);
+    bend[i] = (b.x * a.z - b.z * a.x > 0 ? 1 : -1) * kappa;   // + bends left
+  }
+  const line = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    let sum = 0;
+    for (let k = -12; k <= 12; k++) sum += THREE.MathUtils.clamp(bend[(i + k + N) % N] * 140, -1, 1);
+    line[i] = (sum / 25) * 4.2;
+  }
+
   // on a sprint track the race ends part-way down the first straight
   const finish = def.sprint ? Math.round(def.sprint / DS) : 0;
-  return { pts, tan, nrm, N, DS, speedProfile, length, finish };
+  return { pts, tan, nrm, N, DS, speedProfile, length, finish, bend, line };
 }
 
 // Builds the track's scenery into one group, so switching tracks is a single add/remove.
@@ -603,6 +618,7 @@ export function buildTrack(renderer, def) {
   );
 
   const steel = new THREE.MeshStandardMaterial({ color: 0x23262c, metalness: 0.85, roughness: 0.35 });
+  const startLights = [];   // the five bulbs over the grid; the game switches them during the countdown
   function gantryAt(k, lights) {
   const gantry = new THREE.Group();
   for (const side of [1, -1]) {
@@ -630,9 +646,9 @@ export function buildTrack(renderer, def) {
   const housing = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.8, 0.3), steel);
   housing.position.set(0, 6.35, -0.5);
   gantry.add(housing);
-  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.12, 0.06) });
   for (let i = 0; i < 5; i++) {
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), lamp);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), new THREE.MeshBasicMaterial({ color: 0x220303 }));
+    startLights.push(bulb);
     bulb.position.set((i - 2) * 1.0, 6.35, -0.68);
     gantry.add(bulb);
   }
@@ -1090,5 +1106,5 @@ export function buildTrack(renderer, def) {
     o.material.dispose();
     if (o.isInstancedMesh) o.dispose();
   });
-  return { ...route, theme, group, dispose };
+  return { ...route, theme, group, dispose, startLights };
 }
